@@ -62,3 +62,9 @@ for i, ax in enumerate(axes.reshape(-1)):
 plt.show() # ciao 
 
 print('ciao')
+
+# %%
+import numpy as np
+
+print('numpy imported')
+
