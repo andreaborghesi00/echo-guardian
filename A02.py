@@ -63,8 +63,12 @@ plt.show() # ciao
 
 print('ciao')
 
+
 # %%
 import numpy as np
 
 print('numpy imported')
+
+# %%
+import os
 
