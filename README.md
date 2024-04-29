@@ -1,2 +1,2 @@
 # Healthcare
-University Course Assignments
+University Course Projects
