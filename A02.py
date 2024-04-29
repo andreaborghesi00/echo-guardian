@@ -46,29 +46,17 @@
 
 # %%
 import nibabel as nib
-import matplotlib.pyplot as plt ## ciao
+import matplotlib.pyplot as plt
 
 # %%
 path = 'datasets/code__esempi/data/multiple-patients/MRI/mwp1-mri-1.nii'
 img = nib.load(path).get_fdata()
 img.shape
-# ayoooo ## Andrea
 
 # %%
 plt.style.use('default')
 fig, axes = plt.subplots(4,4, figsize=(12,12))
 for i, ax in enumerate(axes.reshape(-1)):
     ax.imshow(img[:,:,1 + i])
-plt.show() # ciao 
-
-print('ciao')
-
-
-# %%
-import numpy as np
-
-print('numpy imported')
-
-# %%
-import os
+plt.show()
 
