@@ -53,6 +53,10 @@ import glob
 import os
 import sys
 import numpy as np
+import pandas as pd
+import numpy as np
+import os
+from sklearn.model_selection import train_test_split
 
 # %% [Plot MRI]
 path = 'datasets/code__esempi/data/multiple-patients/MRI/mwp1-mri-1.nii'
@@ -70,6 +74,23 @@ pet = pydicom.dcmread(path).pixel_array
 plt.imshow(pet, cmap='viridis')
 plt.show()
 
+# %% 
+
+path = 'dataset/'
+df = pd.DataFrame(columns=['image', 'mask', 'label'])
+
+for folder in os.listdir(path):
+    for file in os.listdir(os.path.join(path, folder)):
+        if file.find('mask') == -1:
+            df = pd.concat([df, pd.DataFrame({'image': [os.path.join(path, folder, file)],
+                                        'mask': [os.path.join(path, folder, file.replace('.png', '_mask.png'))],
+                                        'label': [0 if 'benign' in file else 1]})])
+df.index = range(1, len(df) + 1)
+df
+    
+# %%
+df
+# %%
 #%% [Plot CT]
 path = 'datasets/code__esempi/data/single-patient/CT/dicom/*.dcm'
 
