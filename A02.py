@@ -59,7 +59,7 @@ import os
 from sklearn.model_selection import train_test_split
 
 # %% [Plot MRI]
-path = 'datasets/code__esempi/data/multiple-patients/MRI/mwp1-mri-1.nii'
+path = 'code__esempi/data/multiple-patients/MRI/mwp1-mri-1.nii'
 img = nib.load(path).get_fdata()
 img.shape
 plt.style.use('default')
@@ -69,7 +69,7 @@ for i, ax in enumerate(axes.reshape(-1)):
 plt.show()
 
 #%% [Plot PET]
-path = 'datasets/code__esempi/data/single-patient/PET/dicom/PET-001.dcm'
+path = 'code__esempi/data/single-patient/PET/dicom/PET-001.dcm'
 pet = pydicom.dcmread(path).pixel_array
 plt.imshow(pet, cmap='viridis')
 plt.show()
@@ -92,7 +92,7 @@ df
 df
 # %%
 #%% [Plot CT]
-path = 'datasets/code__esempi/data/single-patient/CT/dicom/*.dcm'
+path = 'code__esempi/data/single-patient/CT/dicom/*.dcm'
 
 # load the DICOM files
 files = []
