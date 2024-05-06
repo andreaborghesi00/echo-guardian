@@ -6,7 +6,7 @@
 #       extension: .py
 #       format_name: percent
 #       format_version: '1.3'
-#       jupytext_version: 1.16.2
+#       jupytext_version: 1.16.1
 #   kernelspec:
 #     display_name: Python 3
 #     language: python
@@ -175,6 +175,7 @@ data_val, data_test, label_val, label_test = train_test_split(data_tmp, label_tm
 # %%
 train_ds = RadiomicsDataset(data_train, label_train, StandardScaler())
 val_ds = RadiomicsDataset(data_val, label_val, scaler=train_ds.scaler)
+test_ds = RadiomicsDataset(data_test, label_test, scaler=train_ds.scaler)
 
 # %%
 train_ds.__getitem__(0)[0]
@@ -183,6 +184,7 @@ train_ds.__getitem__(0)[0]
 batch_size = 64
 train_dl = DataLoader(train_ds, batch_size=batch_size, shuffle=True)
 val_dl = DataLoader(val_ds, batch_size=batch_size)
+test_dl = DataLoader(test_ds, batch_size=batch_size)
 np.save('train_dl.npy', train_dl)
 np.save('val_dl.npy', val_dl)
 
@@ -262,16 +264,8 @@ loss_criterion = nn.BCELoss()
 train(simple_net, train_dl, val_dl, optimizer, loss_criterion, epochs=10)
 
 # %%
-
-# %%
-test_ds = RadiomicsDataset(data_test, label_test)
-test_dl = DataLoader(test_ds, batch_size=batch_size)
-
-# %%
 macro_acc, micro_acc = validate(simple_net, test_dl)
 print(f'Test Macro Acc: {macro_acc}, Test Micro Acc: {micro_acc}')
-
-# %%
 
 # %% [GUI]
 import streamlit as st
