@@ -196,17 +196,19 @@ device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 # ### Fully-Connected only
 
 # %%
+
 class SimpleNet(nn.Module):
     def __init__(self):
         super(SimpleNet, self).__init__()
-        self.fc1 = nn.Linear(101, 64)
-        self.fc2 = nn.Linear(64, 32)
-        self.fc3 = nn.Linear(32, 1)
-
+        self.fc1 = nn.Linear(101, 256)
+        self.fc2 = nn.Linear(256, 128)
+        self.fc3 = nn.Linear(128, 32)
+        self.fc4 = nn.Linear(32, 1)
     def forward(self, x):
         x = F.relu(self.fc1(x))
         x = F.relu(self.fc2(x))
-        x = torch.sigmoid(self.fc3(x))
+        x = F.relu(self.fc3(x))
+        x = torch.sigmoid(self.fc4(x))
         return x
 
 
@@ -224,6 +226,7 @@ def validate(model, data_loader):
             data, target = data.to(device), target.to(device)
 
             output = model(data)
+            print(output.shape, target.shape)
             macro_acc_metric.update(output, target)
             micro_acc_metric.update(output, target)
     return macro_acc_metric.compute(), micro_acc_metric.compute()
@@ -236,7 +239,7 @@ def train(model, train_loader, val_loader, optimizer, loss_criterion, epochs=10)
         for data, target in tqdm(train_loader):
             data, target = data.to(device), target.to(device)
             optimizer.zero_grad()
-
+            
             output = model(data)
             
             loss = loss_criterion(output, target.unsqueeze(1).float())
