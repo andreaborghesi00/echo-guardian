@@ -268,7 +268,7 @@ macro_acc, micro_acc = validate(simple_net, test_dl)
 print(f'Test Macro Acc: {macro_acc}, Test Micro Acc: {micro_acc}')
 
 # %% [markdown]
-# # Random Forests:
+# # Random Forests and SVM:
 
 # %%
 train_data = np.array([train_ds.__getitem__(idx)[0].numpy() for idx in range(len(train_ds))])
@@ -299,6 +299,8 @@ best_model, models = grid_search(train_features = train_data,
                     folds = 5)
 
 # %%
+from sklearn.metrics import accuracy_score
+
 best_model.predict(test_data)
 print(f'best model is {best_model.__class__.__name__} with accuracy {accuracy_score(test_labels, best_model.predict(test_data))}')
 
