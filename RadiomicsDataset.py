@@ -62,7 +62,6 @@ class RadiomicsDataset(Dataset):
         try: 
             self.rad_features = self.scaler.transform(np.array(self.rad_features))        
         except:
-            print('Fitting scaler')
             self.scaler = self.scaler.fit(np.array(self.rad_features))
             self.rad_features = self.scaler.transform(np.array(self.rad_features))        
 
