@@ -5,3 +5,4 @@
 **/data/
 **/model.ipynb
 **/__pycache__/
+**/*.npy
