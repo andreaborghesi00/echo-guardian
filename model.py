@@ -110,29 +110,6 @@ for folder in os.listdir(path):
 df.index = range(1, len(df) + 1)
 df
 
-# %%
-df = pd.DataFrame(columns=['image', 'mask', 'label'])
-
-for folder in os.listdir(path):
-    for file in os.listdir(os.path.join(path, folder)):
-        if file.find('mask') == -1: # if it's an image, add it to the dataframe raw
-            df = pd.concat([df, pd.DataFrame({
-                'image': [os.path.join(path, folder, file)],
-                'mask': [os.path.join(path, folder, file.replace('.png', '_mask.png'))],
-                'label': [0 if 'benign' in file else 1]
-            })])
-        else: # if it's a mask, check if there are multiple masks since we're already iterating over the files
-            base_name = file.split('.')[0]
-            for i in range(1, 4):
-                mask_file = f"{base_name[:-5]}_mask_{i}.png"
-                if os.path.exists(os.path.join(path, folder, mask_file)):
-                    df = pd.concat([df, pd.DataFrame({
-                        'image': [os.path.join(path, folder, file)],
-                        'mask': [os.path.join(path, folder, mask_file)],
-                        'label': [0 if 'benign' in file else 1]
-                    })])
-df
-
 # %% [markdown]
 # ### Sample: Radiomics feature extraction
 
