@@ -190,6 +190,7 @@ val_dl = DataLoader(val_ds, batch_size=batch_size)
 
 # %%
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+print(device)
 
 
 # %% [markdown]
@@ -218,8 +219,8 @@ simple_net = SimpleNet().to(device)
 
 # %%
 def validate(model, data_loader):
-    macro_acc_metric = torchmetrics.Accuracy(task='binary', average='macro')
-    micro_acc_metric = torchmetrics.Accuracy(task='binary', average='micro')
+    macro_acc_metric = torchmetrics.Accuracy(task='binary', average='macro').to(device)
+    micro_acc_metric = torchmetrics.Accuracy(task='binary', average='micro').to(device)
     model.eval()
     with torch.no_grad():
         for data, target in data_loader:
@@ -242,7 +243,7 @@ def train(model, train_loader, val_loader, optimizer, loss_criterion, epochs=10)
             
             output = model(data)
             
-            loss = loss_criterion(output, target.unsqueeze(1).float())
+            loss = loss_criterion(output, target)
             loss.backward()
             optimizer.step()
 
@@ -263,12 +264,12 @@ import plotly.express as px
 import SimpleITK as sitk
 
 print(df.iloc[0, 0])
-img = sitk.ReadImage(df.iloc[0, 0], sitk.sitkInt32)
+img = sitk.GetArrayFromImage(sitk.ReadImage(df.iloc[0, 0]))
 np.shape(img)
 fig = px.imshow(img)
 
 fig.update_layout(
-    dragmode="drawopenpath",
+    dragmode="drawclosedpath",
     newshape_line_color="cyan",
     title_text="Draw a path to separate versicolor and virginica",
 )
