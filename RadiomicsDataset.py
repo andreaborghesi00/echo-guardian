@@ -2,6 +2,7 @@ from torch.utils.data import Dataset
 import SimpleITK as sitk
 import radiomics
 import torch
+import numpy as np
 
 class RadiomicsDataset(Dataset):
     def __init__(self, img_mask_paths, labels):
@@ -45,14 +46,25 @@ class RadiomicsDataset(Dataset):
         self.length = len(labels)
         self.labels = torch.tensor(labels.tolist())
         self.img_mask_paths = img_mask_paths
-
+        
+        self.rad_features = []
+        for i in range(self.length):
+            image = sitk.ReadImage(self.img_mask_paths[i][0], sitk.sitkInt32)
+            mask = sitk.ReadImage(self.img_mask_paths[i][1], sitk.sitkInt32)
+            features = self.extractor.execute(image, mask, voxelBased=False, label=255)
+            features_values = torch.tensor([float(features[key]) for key in features if key.startswith('original_')])
+            # self.rad_features = np.append(self.rad_features, features_values)
+            self.rad_features.append(features_values)
+        
+                
     def __len__(self):
         return self.length
     
     def __getitem__(self, idx):
-        image = sitk.ReadImage(self.img_mask_paths[idx][0], sitk.sitkInt32)
-        mask = sitk.ReadImage(self.img_mask_paths[idx][1], sitk.sitkInt32)
-        features = self.extractor.execute(image, mask, voxelBased=False, label=255)
-        features_values = torch.tensor([float(features[key]) for key in features if key.startswith('original_')]) # che coglioni, che famo preprocessiamo tutte le immagini?
+        # image = sitk.ReadImage(self.img_mask_paths[idx][0], sitk.sitkInt32)
+        # mask = sitk.ReadImage(self.img_mask_paths[idx][1], sitk.sitkInt32)
+        # features = self.extractor.execute(image, mask, voxelBased=False, label=255)
+        # features_values = torch.tensor([float(features[key]) for key in features if key.startswith('original_')]) # che coglioni, che famo preprocessiamo tutte le immagini?
 
-        return features_values, self.labels[idx]
+        # return features_values, self.labels[idx]
+        return self.rad_features[idx], self.labels[idx]
