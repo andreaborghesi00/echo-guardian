@@ -188,11 +188,8 @@ data_val, data_test, label_val, label_test = train_test_split(data_valtest, labe
 
 # %%
 train_ds = RadiomicsDataset(data_train, label_train, StandardScaler())
-val_ds = RadiomicsDataset(data_val, label_val, scaler=train_ds.scaler)
-test_ds = RadiomicsDataset(data_test, label_test, scaler=train_ds.scaler)
-
-# %%
-train_ds.__getitem__(0)[0]
+test_ds  = RadiomicsDataset(data_test, label_test, scaler=train_ds.scaler)
+val_ds   = RadiomicsDataset(data_val, label_val, scaler=train_ds.scaler)
 
 # %%
 batch_size = 64
@@ -200,13 +197,13 @@ force_dataloader_creation = False
 
 if (os.path.exists('train_dl.npy') and os.path.exists('val_dl.npy') and os.path.exists('test_dl.npy')) and not force_dataloader_creation:
     train_dl = np.load('train_dl.npy', allow_pickle=True)
-    test_dl = np.load('test_dl.npy', allow_pickle=True)
-    val_dl = np.load('val_dl.npy', allow_pickle=True)
+    test_dl  = np.load('test_dl.npy', allow_pickle=True)
+    val_dl   = np.load('val_dl.npy', allow_pickle=True)
     print('Loaded train_dl and val_dl from file')
 else:
     train_dl = DataLoader(train_ds, batch_size=batch_size, shuffle=True)
-    test_dl = DataLoader(test_ds, batch_size=batch_size)
-    val_dl = DataLoader(val_ds, batch_size=batch_size)
+    test_dl  = DataLoader(test_ds, batch_size=batch_size)
+    val_dl   = DataLoader(val_ds, batch_size=batch_size)
     np.save('train_dl.npy', train_dl)
     np.save('test_dl.npy', test_dl)
     np.save('val_dl.npy', val_dl)
@@ -296,13 +293,12 @@ print(f'Test Macro Acc: {macro_acc}, Test Micro Acc: {micro_acc}')
 
 # %%
 train_data = np.array([train_ds.__getitem__(idx)[0].numpy() for idx in range(len(train_ds))])
+test_data  = np.array([test_ds.__getitem__(idx)[0].numpy() for idx in range(len(test_ds))])
+val_data   = np.array([val_ds.__getitem__(idx)[0].numpy() for idx in range(len(val_ds))])
+
 train_labels = np.array([train_ds.__getitem__(idx)[1] for idx in range(len(train_ds))]).ravel()
-
-val_data = np.array([val_ds.__getitem__(idx)[0].numpy() for idx in range(len(val_ds))])
-val_labels = np.array([val_ds.__getitem__(idx)[1] for idx in range(len(val_ds))]).ravel()
-
-test_data = np.array([test_ds.__getitem__(idx)[0].numpy() for idx in range(len(test_ds))])
-test_labels = np.array([test_ds.__getitem__(idx)[1] for idx in range(len(test_ds))]).ravel()
+test_labels  = np.array([test_ds.__getitem__(idx)[1] for idx in range(len(test_ds))]).ravel()
+val_labels   = np.array([val_ds.__getitem__(idx)[1] for idx in range(len(val_ds))]).ravel()
 
 # %%
 from utils import grid_search
