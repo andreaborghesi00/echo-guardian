@@ -6,7 +6,7 @@
 #       extension: .py
 #       format_name: percent
 #       format_version: '1.3'
-#       jupytext_version: 1.16.1
+#       jupytext_version: 1.16.2
 #   kernelspec:
 #     display_name: Python 3
 #     language: python
@@ -143,7 +143,7 @@ extractor.enableAllFeatures()
 extractor.disableAllFeatures()
 extractor.enableFeatureClassByName('firstorder')
 extractor.enableFeatureClassByName('shape2D')
-extractor.enableFeatureClassByName('glcm')
+extractor.enableFeaturesByName(glcm=glcm_feats)
 extractor.enableFeatureClassByName('gldm')
 extractor.enableFeatureClassByName('glrlm')
 extractor.enableFeatureClassByName('glszm')
@@ -183,6 +183,8 @@ train_ds.__getitem__(0)[0]
 batch_size = 64
 train_dl = DataLoader(train_ds, batch_size=batch_size, shuffle=True)
 val_dl = DataLoader(val_ds, batch_size=batch_size)
+np.save('train_dl.npy', train_dl)
+np.save('val_dl.npy', val_dl)
 
 # %% [markdown]
 # # Classifiers
@@ -192,6 +194,7 @@ val_dl = DataLoader(val_ds, batch_size=batch_size)
 
 # %%
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+print(device)
 
 
 # %% [markdown]
@@ -243,7 +246,7 @@ def train(model, train_loader, val_loader, optimizer, loss_criterion, epochs=10)
             optimizer.zero_grad()
             
             output = model(data)
-            # print(output)
+            
             loss = loss_criterion(output, target)
             loss.backward()
             optimizer.step()
@@ -267,5 +270,44 @@ test_dl = DataLoader(test_ds, batch_size=batch_size)
 # %%
 macro_acc, micro_acc = validate(simple_net, test_dl)
 print(f'Test Macro Acc: {macro_acc}, Test Micro Acc: {micro_acc}')
+
+# %%
+
+# %% [GUI]
+import streamlit as st
+import plotly.graph_objects as go
+import plotly.express as px
+import SimpleITK as sitk
+
+print(df.iloc[0, 0])
+img = sitk.GetArrayFromImage(sitk.ReadImage(df.iloc[0, 0]))
+np.shape(img)
+fig = px.imshow(img)
+
+fig.update_layout(
+    dragmode="drawclosedpath",
+    newshape_line_color="cyan",
+    title_text="Draw a path to separate versicolor and virginica",
+)
+config = dict(
+    {
+        "scrollZoom": True,
+        "displayModeBar": True,
+        # 'editable'              : True,
+        "modeBarButtonsToAdd": [
+            "drawline",
+            "drawopenpath",
+            "drawclosedpath",
+            "drawcircle",
+            "drawrect",
+            "eraseshape",
+        ],
+        "toImageButtonOptions": {"format": "svg"},
+    }
+)
+
+st.plotly_chart(fig, config=config)
+
+# %%
 
 # %%
