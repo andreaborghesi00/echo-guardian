@@ -169,8 +169,8 @@ img_mask_paths = [(df['image'].iloc[idx], df['mask'].iloc[idx]) for idx in range
 labels = df['label'].values
 
 # %%
-data_train, data_tmp, label_train, label_tmp = train_test_split(img_mask_paths, labels, test_size=0.2, random_state=69420, stratify=labels)
-data_val, data_test, label_val, label_test = train_test_split(data_tmp, label_tmp, test_size=0.5, random_state=69420, stratify=label_tmp)
+data_train, data_valtest, label_train, label_valtest = train_test_split(img_mask_paths, labels, test_size=0.2, random_state=69420, stratify=labels)
+data_val, data_test, label_val, label_test = train_test_split(data_valtest, label_valtest, test_size=0.5, random_state=69420, stratify=label_valtest)
 
 # %%
 train_ds = RadiomicsDataset(data_train, label_train, StandardScaler())
@@ -261,11 +261,46 @@ def train(model, train_loader, val_loader, optimizer, loss_criterion, epochs=10)
 optimizer = optim.Adam(simple_net.parameters(), lr=0.001)
 loss_criterion = nn.BCELoss()
 
-train(simple_net, train_dl, val_dl, optimizer, loss_criterion, epochs=10)
+train(simple_net, train_dl, val_dl, optimizer, loss_criterion, epochs=100)
 
 # %%
 macro_acc, micro_acc = validate(simple_net, test_dl)
 print(f'Test Macro Acc: {macro_acc}, Test Micro Acc: {micro_acc}')
+
+# %% [markdown]
+# # Random Forests:
+
+# %%
+train_data = np.array([train_ds.__getitem__(idx)[0].numpy() for idx in range(len(train_ds))])
+train_labels = np.array([train_ds.__getitem__(idx)[1] for idx in range(len(train_ds))]).ravel()
+
+val_data = np.array([val_ds.__getitem__(idx)[0].numpy() for idx in range(len(val_ds))])
+val_labels = np.array([val_ds.__getitem__(idx)[1] for idx in range(len(val_ds))]).ravel()
+
+test_data = np.array([test_ds.__getitem__(idx)[0].numpy() for idx in range(len(test_ds))])
+test_labels = np.array([test_ds.__getitem__(idx)[1] for idx in range(len(test_ds))]).ravel()
+
+# %%
+from utils import grid_search
+
+parameters = {'kernel':['linear', 'rbf', 'sigmoid', 'poly', 'random_forest'],
+              'C':[0.1, 20],
+              'degree':[1, 5],
+              'gamma':(0.1, 1, 0.1),
+              'criterion': ('gini', 'entropy', 'log_loss'),
+              'n_estimators' : (100, 1000, 100),
+              'step': 0.3}
+
+best_model, models = grid_search(train_features = train_data,
+                    test_features = val_data,   
+                    train_labels = train_labels,
+                    test_labels = val_labels,
+                    params = parameters,
+                    folds = 5)
+
+# %%
+best_model.predict(test_data)
+print(f'best model is {best_model.__class__.__name__} with accuracy {accuracy_score(test_labels, best_model.predict(test_data))}')
 
 # %% [GUI]
 import streamlit as st
@@ -289,7 +324,7 @@ config = dict(
         "displayModeBar": True,
         # 'editable'              : True,
         "modeBarButtonsToAdd": [
-            "drawline",
+            "drawline", 
             "drawopenpath",
             "drawclosedpath",
             "drawcircle",
@@ -301,7 +336,3 @@ config = dict(
 )
 
 st.plotly_chart(fig, config=config)
-
-# %%
-
-# %%
