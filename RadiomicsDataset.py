@@ -2,6 +2,7 @@ from torch.utils.data import Dataset
 import SimpleITK as sitk
 import radiomics
 import torch
+import numpy as np
 
 class RadiomicsDataset(Dataset):
     def __init__(self, img_mask_paths, labels):
