@@ -196,11 +196,21 @@ train_ds.__getitem__(0)[0]
 
 # %%
 batch_size = 64
-train_dl = DataLoader(train_ds, batch_size=batch_size, shuffle=True)
-val_dl = DataLoader(val_ds, batch_size=batch_size)
-test_dl = DataLoader(test_ds, batch_size=batch_size)
-np.save('train_dl.npy', train_dl)
-np.save('val_dl.npy', val_dl)
+force_dataloader_creation = False
+
+if (os.path.exists('train_dl.npy') and os.path.exists('val_dl.npy') and os.path.exists('test_dl.npy')) and not force_dataloader_creation:
+    train_dl = np.load('train_dl.npy', allow_pickle=True)
+    test_dl = np.load('test_dl.npy', allow_pickle=True)
+    val_dl = np.load('val_dl.npy', allow_pickle=True)
+    print('Loaded train_dl and val_dl from file')
+else:
+    train_dl = DataLoader(train_ds, batch_size=batch_size, shuffle=True)
+    test_dl = DataLoader(test_ds, batch_size=batch_size)
+    val_dl = DataLoader(val_ds, batch_size=batch_size)
+    np.save('train_dl.npy', train_dl)
+    np.save('test_dl.npy', test_dl)
+    np.save('val_dl.npy', val_dl)
+    print('Saved train_dl and val_dl to file')
 
 # %% [markdown]
 # # Classifiers
