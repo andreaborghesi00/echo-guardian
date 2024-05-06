@@ -181,6 +181,8 @@ len(train_ds.__getitem__(0)[0])
 batch_size = 64
 train_dl = DataLoader(train_ds, batch_size=batch_size, shuffle=True)
 val_dl = DataLoader(val_ds, batch_size=batch_size)
+np.save('train_dl.npy', train_dl)
+np.save('val_dl.npy', val_dl)
 
 # %% [markdown]
 # # Classifiers
@@ -218,15 +220,14 @@ simple_net = SimpleNet().to(device)
 
 # %%
 def validate(model, data_loader):
-    macro_acc_metric = torchmetrics.Accuracy(task='binary', average='macro')
-    micro_acc_metric = torchmetrics.Accuracy(task='binary', average='micro')
+    macro_acc_metric = torchmetrics.Accuracy(task='binary', average='macro').to(device)
+    micro_acc_metric = torchmetrics.Accuracy(task='binary', average='micro').to(device)
     model.eval()
     with torch.no_grad():
         for data, target in data_loader:
             data, target = data.to(device), target.to(device)
 
             output = model(data)
-            print(output.shape, target.shape)
             macro_acc_metric.update(output, target)
             micro_acc_metric.update(output, target)
     return macro_acc_metric.compute(), micro_acc_metric.compute()
@@ -234,15 +235,15 @@ def validate(model, data_loader):
 
 # %%
 def train(model, train_loader, val_loader, optimizer, loss_criterion, epochs=10):
-    model.train()
     for epoch in range(epochs):
+        model.train()
         for data, target in tqdm(train_loader):
             data, target = data.to(device), target.to(device)
             optimizer.zero_grad()
             
             output = model(data)
             
-            loss = loss_criterion(output, target.unsqueeze(1).float())
+            loss = loss_criterion(output, target)
             loss.backward()
             optimizer.step()
 
@@ -251,7 +252,9 @@ def train(model, train_loader, val_loader, optimizer, loss_criterion, epochs=10)
 
 
 # %%
-optimizer = optim.Adam(simple_net.parameters(), lr=0.001)
-loss_criterion = nn.CrossEntropyLoss()
+optimizer = optim.Adam(simple_net.parameters(), lr=0.1)
+loss_criterion = nn.BCELoss()
 
 train(simple_net, train_dl, val_dl, optimizer, loss_criterion, epochs=10)
+
+# %%
