@@ -77,6 +77,8 @@ from RadiomicsDataset import RadiomicsDataset
 import torchmetrics
 from torchsummary import summary
 from tqdm import tqdm
+from sklearn.preprocessing import StandardScaler, MinMaxScaler, RobustScaler
+import sklearn
 
 # %% [markdown]
 # # Data loading
@@ -171,11 +173,11 @@ data_train, data_tmp, label_train, label_tmp = train_test_split(img_mask_paths, 
 data_val, data_test, label_val, label_test = train_test_split(data_tmp, label_tmp, test_size=0.5, random_state=69420, stratify=label_tmp)
 
 # %%
-train_ds = RadiomicsDataset(data_train, label_train)
-val_ds = RadiomicsDataset(data_val, label_val)
+train_ds = RadiomicsDataset(data_train, label_train, StandardScaler())
+val_ds = RadiomicsDataset(data_val, label_val, scaler=train_ds.scaler)
 
 # %%
-len(train_ds.__getitem__(0)[0])
+train_ds.__getitem__(0)[0]
 
 # %%
 batch_size = 64
@@ -218,31 +220,31 @@ simple_net = SimpleNet().to(device)
 
 # %%
 def validate(model, data_loader):
-    macro_acc_metric = torchmetrics.Accuracy(task='binary', average='macro')
-    micro_acc_metric = torchmetrics.Accuracy(task='binary', average='micro')
+    macro_acc_metric = torchmetrics.Accuracy(task='binary', average='macro').to(device)
+    micro_acc_metric = torchmetrics.Accuracy(task='binary', average='micro').to(device)
     model.eval()
     with torch.no_grad():
         for data, target in data_loader:
             data, target = data.to(device), target.to(device)
 
             output = model(data)
-            print(output.shape, target.shape)
             macro_acc_metric.update(output, target)
             micro_acc_metric.update(output, target)
+    model.train()
     return macro_acc_metric.compute(), micro_acc_metric.compute()
 
 
 # %%
 def train(model, train_loader, val_loader, optimizer, loss_criterion, epochs=10):
-    model.train()
-    for epoch in range(epochs):
-        for data, target in tqdm(train_loader):
+    # model.train()
+    for epoch in tqdm(range(epochs)):
+        for data, target in train_loader:
             data, target = data.to(device), target.to(device)
             optimizer.zero_grad()
             
             output = model(data)
-            
-            loss = loss_criterion(output, target.unsqueeze(1).float())
+            # print(output)
+            loss = loss_criterion(output, target)
             loss.backward()
             optimizer.step()
 
@@ -252,6 +254,18 @@ def train(model, train_loader, val_loader, optimizer, loss_criterion, epochs=10)
 
 # %%
 optimizer = optim.Adam(simple_net.parameters(), lr=0.001)
-loss_criterion = nn.CrossEntropyLoss()
+loss_criterion = nn.BCELoss()
 
 train(simple_net, train_dl, val_dl, optimizer, loss_criterion, epochs=10)
+
+# %%
+
+# %%
+test_ds = RadiomicsDataset(data_test, label_test)
+test_dl = DataLoader(test_ds, batch_size=batch_size)
+
+# %%
+macro_acc, micro_acc = validate(simple_net, test_dl)
+print(f'Test Macro Acc: {macro_acc}, Test Micro Acc: {micro_acc}')
+
+# %%
