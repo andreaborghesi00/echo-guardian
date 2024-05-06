@@ -169,8 +169,8 @@ img_mask_paths = [(df['image'].iloc[idx], df['mask'].iloc[idx]) for idx in range
 labels = df['label'].values
 
 # %%
-data_train, data_tmp, label_train, label_tmp = train_test_split(img_mask_paths, labels, test_size=0.2, random_state=69420, stratify=labels)
-data_val, data_test, label_val, label_test = train_test_split(data_tmp, label_tmp, test_size=0.5, random_state=69420, stratify=label_tmp)
+data_train, data_valtest, label_train, label_valtest = train_test_split(img_mask_paths, labels, test_size=0.2, random_state=69420, stratify=labels)
+data_val, data_test, label_val, label_test = train_test_split(data_valtest, label_valtest, test_size=0.5, random_state=69420, stratify=label_valtest)
 
 # %%
 train_ds = RadiomicsDataset(data_train, label_train, StandardScaler())
@@ -261,7 +261,7 @@ def train(model, train_loader, val_loader, optimizer, loss_criterion, epochs=10)
 optimizer = optim.Adam(simple_net.parameters(), lr=0.001)
 loss_criterion = nn.BCELoss()
 
-train(simple_net, train_dl, val_dl, optimizer, loss_criterion, epochs=10)
+train(simple_net, train_dl, val_dl, optimizer, loss_criterion, epochs=100)
 
 # %%
 macro_acc, micro_acc = validate(simple_net, test_dl)
@@ -289,7 +289,7 @@ config = dict(
         "displayModeBar": True,
         # 'editable'              : True,
         "modeBarButtonsToAdd": [
-            "drawline",
+            "drawline", 
             "drawopenpath",
             "drawclosedpath",
             "drawcircle",
@@ -301,7 +301,3 @@ config = dict(
 )
 
 st.plotly_chart(fig, config=config)
-
-# %%
-
-# %%
