@@ -53,8 +53,8 @@ class RadiomicsDataset(Dataset):
         
         self.rad_features = []
         for i in tqdm(range(self.length)):
-            image = sitk.ReadImage(self.img_mask_paths[i][0], sitk.sitkInt32)
-            mask = sitk.ReadImage(self.img_mask_paths[i][1], sitk.sitkInt32)
+            image = sitk.ReadImage(self.img_mask_paths[i][0], sitk.sitkUInt8)
+            mask = sitk.ReadImage(self.img_mask_paths[i][1], sitk.sitkUInt8)
             features = self.extractor.execute(image, mask, voxelBased=False, label=255)
             features_values = [float(features[key]) for key in features if key.startswith('original_')]
             self.rad_features.append(features_values)

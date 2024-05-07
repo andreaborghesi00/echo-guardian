@@ -164,8 +164,8 @@ extractor.enableFeatureClassByName('glszm')
 extractor.enableFeatureClassByName('ngtdm')
 # extractor.enableFeatureClassByName()
 
-image = sitk.ReadImage(image_path, sitk.sitkInt32)
-mask = sitk.ReadImage(mask_path, sitk.sitkInt32)
+image = sitk.ReadImage(image_path, sitk.sitkUInt8)
+mask = sitk.ReadImage(mask_path, sitk.sitkUInt8)
 features = extractor.execute(image, mask, voxelBased=False, label=255)
 
 # %%
@@ -187,7 +187,7 @@ data_train, data_valtest, label_train, label_valtest = train_test_split(img_mask
 data_val, data_test, label_val, label_test = train_test_split(data_valtest, label_valtest, test_size=0.5, random_state=69420, stratify=label_valtest)
 
 # %%
-train_ds = RadiomicsDataset(data_train, label_train, scaler = StandardScaler())
+train_ds = RadiomicsDataset(data_train, label_train, scaler=StandardScaler())
 test_ds  = RadiomicsDataset(data_test, label_test, scaler=train_ds.scaler)
 val_ds   = RadiomicsDataset(data_val, label_val, scaler=train_ds.scaler)
 
