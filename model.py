@@ -323,38 +323,3 @@ from sklearn.metrics import accuracy_score
 
 best_model.predict(test_data)
 print(f'best model is {best_model.__class__.__name__} with accuracy {accuracy_score(test_labels, best_model.predict(test_data))}')
-
-# %% [GUI]
-import streamlit as st
-import plotly.graph_objects as go
-import plotly.express as px
-import SimpleITK as sitk
-
-print(df.iloc[0, 0])
-img = sitk.GetArrayFromImage(sitk.ReadImage(df.iloc[0, 0]))
-np.shape(img)
-fig = px.imshow(img)
-
-fig.update_layout(
-    dragmode="drawclosedpath",
-    newshape_line_color="cyan",
-    title_text="Draw a path to separate versicolor and virginica",
-)
-config = dict(
-    {
-        "scrollZoom": True,
-        "displayModeBar": True,
-        # 'editable'              : True,
-        "modeBarButtonsToAdd": [
-            "drawline", 
-            "drawopenpath",
-            "drawclosedpath",
-            "drawcircle",
-            "drawrect",
-            "eraseshape",
-        ],
-        "toImageButtonOptions": {"format": "svg"},
-    }
-)
-
-st.plotly_chart(fig, config=config)
