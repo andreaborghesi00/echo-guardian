@@ -8,6 +8,7 @@ from sklearn.metrics import classification_report
 import numpy as np
 from sklearn.metrics import accuracy_score
 warnings.filterwarnings('ignore')
+import SimpleITK as sitk
 
 def process_fold(model, train_index, test_index, features, labels, results = None, fold_index = None, lock = None):
     
@@ -158,3 +159,14 @@ def grid_search(train_features, test_features, train_labels, test_labels, params
                 {results}''')
     
     return best_model, models
+
+# @see https://github.com/InsightSoftwareConsortium/SimpleITK-Notebooks/blob/b75721a121102cf972f942fad927751089a7cc80/Python/03_Image_Details.ipynb
+
+def srgb2gray(image):
+    # Convert sRGB image to gray scale and rescale results to [0,255]    
+    channels = [sitk.VectorIndexSelectionCast(image,i, sitk.sitkFloat32) for i in range(image.GetNumberOfComponentsPerPixel())]
+    #linear mapping
+    I = 1/255.0*(0.2126*channels[0] + 0.7152*channels[1] + 0.0722*channels[2])
+    #nonlinear gamma correction
+    I = I*sitk.Cast(I<=0.0031308,sitk.sitkFloat32)*12.92 + I**(1/2.4)*sitk.Cast(I>0.0031308,sitk.sitkFloat32)*1.055-0.055
+    return sitk.Cast(sitk.RescaleIntensity(I), sitk.sitkUInt8)
