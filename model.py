@@ -110,10 +110,8 @@ for folder in os.listdir(path):
 df.index = range(1, len(df) + 1)
 df
 
-idx_benign_8 = df[df['image'].str.contains('benign \(8\)')].index
-idx_malignant_8 = df[df['image'].str.contains('malignant \(8\)')].index
-print(df['image'].loc[idx_benign_8])
-print(df['image'].loc[idx_malignant_8])
+idx_benign = df[df['image'].str.contains('benign \(7\)')].index
+print(df['image'].loc[idx_benign])
 
 # %% [markdown]
 # ### Sample: Radiomics feature extraction
@@ -149,9 +147,9 @@ glcm_feats = keys_list = [
 
 # %%
 # load one image and mask as a sample as numpy array
-image_path = df['image'][idx_malignant_8]
-mask_path = df['mask'][idx_malignant_8]
-print(df['image'].loc[idx_malignant_8])
+image_path = df['image'][idx_benign]
+mask_path = df['mask'][idx_benign]
+print(df['image'].loc[idx_benign])
 
 # Configure the feature extractor
 extractor = radiomics.featureextractor.RadiomicsFeatureExtractor()
@@ -170,7 +168,7 @@ extractor.enableFeatureClassByName('glszm')
 extractor.enableFeatureClassByName('ngtdm')
 # extractor.enableFeatureClassByName()
 
-image = sitk.ReadImage(image_path, sitk.sitkUInt8)
+image = sitk.ReadImage(image_path, sitk.sitkUInt32)
 mask = sitk.ReadImage(mask_path, sitk.sitkUInt8)
 features = extractor.execute(image, mask, voxelBased=False, label=255)
 
