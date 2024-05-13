@@ -6,7 +6,7 @@
 #       extension: .py
 #       format_name: percent
 #       format_version: '1.3'
-#       jupytext_version: 1.16.2
+#       jupytext_version: 1.16.1
 #   kernelspec:
 #     display_name: Python 3
 #     language: python
@@ -74,6 +74,7 @@ import torch.optim as optim
 import torch.nn.functional as F
 from torch.utils.data import DataLoader, Dataset
 from RadiomicsDataset import RadiomicsDataset
+import albumentations as A
 import torchmetrics
 from torchsummary import summary
 from tqdm import tqdm
@@ -187,13 +188,33 @@ data_train, data_valtest, label_train, label_valtest = train_test_split(img_mask
 data_val, data_test, label_val, label_test = train_test_split(data_valtest, label_valtest, test_size=0.5, random_state=69420, stratify=label_valtest)
 
 # %%
-train_ds = RadiomicsDataset(data_train, label_train, scaler=StandardScaler())
-test_ds  = RadiomicsDataset(data_test, label_test, scaler=train_ds.scaler)
-val_ds   = RadiomicsDataset(data_val, label_val, scaler=train_ds.scaler)
+# augmentations
+train_transform = A.Compose([
+    A.HorizontalFlip(p=0.5),
+    A.VerticalFlip(p=0.5),
+    A.RandomRotate90(p=0.5),
+    A.Transpose(p=0.5),
+    A.ShiftScaleRotate(shift_limit=0.1, scale_limit=0.1, rotate_limit=45, p=0.5),
+    A.RandomBrightnessContrast(p=0.5),
+    A.RandomGamma(p=0.5),
+    A.GaussNoise(p=0.5),
+    A.Blur(p=0.5),
+    A.Normalize(mean=(0.5,), std=(0.5,), max_pixel_value=255.0),
+])
+
+val_transform = A.Compose([
+    A.Normalize(mean=(0.5,), std=(0.5,), max_pixel_value=255.0),
+])
+
+
+# %%
+train_ds = RadiomicsDataset(data_train, label_train, scaler=StandardScaler(), transform=train_transform, json_exclude_path='excludedImages.json', exclusion_class='classifier')
+test_ds  = RadiomicsDataset(data_test, label_test, scaler=train_ds.scaler, transform=val_transform, json_exclude_path='excludedImages.json', exclusion_class='classifier')
+val_ds   = RadiomicsDataset(data_val, label_val, scaler=train_ds.scaler, transform=val_transform, json_exclude_path='excludedImages.json', exclusion_class='classifier')
 
 # %%
 batch_size = 64
-force_dataloader_creation = False
+force_dataloader_creation = True
 
 if (os.path.exists('train_dl.npy') and os.path.exists('val_dl.npy') and os.path.exists('test_dl.npy')) and not force_dataloader_creation:
     train_dl = np.load('train_dl.npy', allow_pickle=True)
@@ -201,9 +222,9 @@ if (os.path.exists('train_dl.npy') and os.path.exists('val_dl.npy') and os.path.
     val_dl   = np.load('val_dl.npy', allow_pickle=True)
     print('Loaded train_dl and val_dl from file')
 else:
-    train_dl = DataLoader(train_ds, batch_size=batch_size, shuffle=True)
-    test_dl  = DataLoader(test_ds, batch_size=batch_size)
-    val_dl   = DataLoader(val_ds, batch_size=batch_size)
+    train_dl = DataLoader(train_ds, batch_size=batch_size, shuffle=True, num_workers=8)
+    test_dl  = DataLoader(test_ds, batch_size=batch_size, num_workers=8)
+    val_dl   = DataLoader(val_ds, batch_size=batch_size, num_workers=8)
     np.save('train_dl.npy', train_dl)
     np.save('test_dl.npy', test_dl)
     np.save('val_dl.npy', val_dl)
@@ -252,7 +273,6 @@ def validate(model, data_loader):
     with torch.no_grad():
         for data, target in data_loader:
             data, target = data.to(device), target.to(device)
-
             output = model(data)
             macro_acc_metric.update(output, target)
             micro_acc_metric.update(output, target)
@@ -269,7 +289,6 @@ def train(model, train_loader, val_loader, optimizer, loss_criterion, epochs=10)
             optimizer.zero_grad()
             
             output = model(data)
-            
             loss = loss_criterion(output, target)
             loss.backward()
             optimizer.step()
@@ -282,7 +301,7 @@ def train(model, train_loader, val_loader, optimizer, loss_criterion, epochs=10)
 optimizer = optim.Adam(simple_net.parameters(), lr=0.001)
 loss_criterion = nn.BCELoss()
 
-train(simple_net, train_dl, val_dl, optimizer, loss_criterion, epochs=100)
+train(simple_net, train_dl, val_dl, optimizer, loss_criterion, epochs=500)
 
 # %%
 macro_acc, micro_acc = validate(simple_net, test_dl)

@@ -1,6 +1,7 @@
 from torch.utils.data import Dataset
 import SimpleITK as sitk
 import radiomics
+import albumentations as A
 import torch
 import numpy as np
 from tqdm import tqdm
@@ -10,7 +11,7 @@ import re
 import random
 
 class RadiomicsDataset(Dataset):
-    def __init__(self, img_mask_paths, labels, scaler=None, json_exclude_path=None, exclusion_class="classifier", augmentation_proba=0.5):
+    def __init__(self, img_mask_paths, labels, scaler=None, json_exclude_path=None, exclusion_class="classifier", transform = None):
         glcm_feats = [ # i know it's annoying, and it took way too long to find, but this is how you exclude a feature from the extraction
             'Autocorrelation',
             'ClusterProminence',
@@ -38,8 +39,7 @@ class RadiomicsDataset(Dataset):
             'SumSquares'
         ]
 
-        self.augmentation_proba = augmentation_proba
-
+        self.transform = transform
         self.extractor = radiomics.featureextractor.RadiomicsFeatureExtractor()
         self.extractor.disableAllFeatures()
         self.extractor.enableFeatureClassByName('firstorder')
@@ -54,6 +54,11 @@ class RadiomicsDataset(Dataset):
         
         self.labels = torch.tensor(labels.tolist())
         self.labels = self.labels.unsqueeze(1).float()
+        self.imarray = []
+        self.maskarray = []
+        self.images = []
+        self.masks = []
+        
         self.img_mask_paths = img_mask_paths
         
         json_data = {}
@@ -75,10 +80,13 @@ class RadiomicsDataset(Dataset):
 
             image = sitk.ReadImage(image_path, sitk.sitkUInt8)
             mask = sitk.ReadImage(mask_path, sitk.sitkUInt8)
+            
+            self.imarray.append(sitk.GetArrayFromImage(image))
+            self.maskarray.append(sitk.GetArrayFromImage(mask))
+            
             features = self.extractor.execute(image, mask, voxelBased=False, label=255)
             features_values = [float(features[key]) for key in features if key.startswith('original_')]
             self.rad_features.append(features_values)
-
         self.length = len(self.rad_features)
 
         try: 
@@ -94,7 +102,18 @@ class RadiomicsDataset(Dataset):
         return self.length
     
     def __getitem__(self, idx):
-        feat = self.rad_features[idx]
-        if random.random() < self.augmentation_proba:
-            feat = feat + torch.normal(0, 1, size=feat.size())
+        if self.transform is None:
+            feat = self.rad_features[idx]
+        else:
+            augmented = self.transform(image=self.imarray[idx], mask=self.maskarray[idx])
+            try:
+                features = self.extractor.execute(sitk.GetImageFromArray(augmented['image']), sitk.GetImageFromArray(augmented['mask']), voxelBased=False, label=255)
+            except:
+                print('Error in feature extraction:', self.img_mask_paths[idx][0], self.img_mask_paths[idx][1])
+                return self.rad_features[idx], self.labels[idx]
+            features_values = [float(features[key]) for key in features if key.startswith('original_')]
+            feat = torch.tensor(self.scaler.transform(np.array(features_values).reshape(1, -1))).float()[0]
+
+        #print (feat.shape, self.labels[idx].shape)
+        #print(feat)
         return feat, self.labels[idx]
