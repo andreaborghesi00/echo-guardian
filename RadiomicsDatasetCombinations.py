@@ -8,8 +8,9 @@ from sklearn.utils.validation import check_is_fitted
 import json
 import re
 import random
+from itertools import combinations
 
-class RadiomicsDataset(Dataset):
+class RadiomicsDatasetCombinations(Dataset):
     def __init__(self, img_mask_paths, labels, scaler=None, json_exclude_path=None, exclusion_class="classifier", augmentation_proba=0.5):
         glcm_feats = [ # i know it's annoying, and it took way too long to find, but this is how you exclude a feature from the extraction
             'Autocorrelation',
@@ -78,6 +79,13 @@ class RadiomicsDataset(Dataset):
             features = self.extractor.execute(image, mask, voxelBased=False, label=255)
             features_values = [float(features[key]) for key in features if key.startswith('original_')]
             self.rad_features.append(features_values)
+
+        for idx, item in enumerate(self.rad_features):
+            combs = []
+            for comb in combinations(item, 2):
+                combs.append(comb[0] * comb[1])
+            [item.append(comb) for comb in combs]      
+
 
         self.length = len(self.rad_features)
 
