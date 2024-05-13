@@ -20,7 +20,7 @@ def path_to_mask(path, shape):
     cols, rows = path_to_indices(path).T
     rr, cc = draw.polygon(rows, cols)
     mask = np.zeros(shape, dtype=bool)
-    mask[rr, cc] = True
+    mask[rr-1, cc-1] = True
     mask = ndimage.binary_fill_holes(mask)
     return mask
 
@@ -34,7 +34,7 @@ fig.update_layout(dragmode='drawclosedpath')
 app = Dash(__name__)
 app.layout = html.Div(
     [
-        html.H3("Draw a path to show the histogram of the ROI"),
+        html.H3("Draw the Region Of Interest (ROI) on the image below:"),
         html.Div(
             [dcc.Graph(id="ultrasound-image", figure=fig),],
             style={"width": "60%", "display": "inline-block", "padding": "0 0"},
