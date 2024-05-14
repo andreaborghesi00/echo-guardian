@@ -282,7 +282,7 @@ class SimpleNet(nn.Module):
         return x
     
 class RadiomicsNet(nn.Module):
-    def __init__(self, input_size=101, hidden_size=1024, num_layers=4, dropout_rate=0.2):
+    def __init__(self, input_size=101, hidden_size=1024, num_layers=4, dropout_rate=0.5):
         super(RadiomicsNet, self).__init__()
         self.input_size = input_size
         self.hidden_size = hidden_size
@@ -292,13 +292,13 @@ class RadiomicsNet(nn.Module):
         self.layers = nn.ModuleList()
         self.layers.append(nn.Linear(input_size, hidden_size))
         self.layers.append(nn.BatchNorm1d(hidden_size))
-        self.layers.append(nn.ReLU())
+        self.layers.append(nn.LeakyReLU())
         self.layers.append(nn.Dropout(dropout_rate))
 
         for i in range(num_layers - 1):
             self.layers.append(nn.Linear(hidden_size // (2**i), hidden_size // (2**(i + 1)) ))
             self.layers.append(nn.BatchNorm1d(hidden_size // (2**(i + 1)) ))
-            self.layers.append(nn.ReLU())
+            self.layers.append(nn.LeakyReLU())
             self.layers.append(nn.Dropout(dropout_rate))
 
         self.output_layer = nn.Linear(hidden_size // (2**(num_layers - 1)), 1)
@@ -333,28 +333,20 @@ def validate(model, data_loader):
 
 # %%
 def train(model, train_loader, val_loader, optimizer, loss_criterion, epochs=10):
-    try:
-        pbar.close()
-    except:
-        pass
+    with tqdm(total=epochs, desc='Training', leave=False, unit='epoch') as pbar:
+        for epoch in range(epochs):
+            for data, target in train_loader:
+                data, target = data.to(device), target.to(device)
+                optimizer.zero_grad()
 
-    pbar = tqdm(total=epochs, desc='Training', leave=False, unit='epoch')
+                output = model(data)
+                loss = loss_criterion(output, target)
+                loss.backward()
+                optimizer.step()
 
-    # model.train()
-    for epoch in tqdm(range(epochs)):
-        for data, target in train_loader:
-            data, target = data.to(device), target.to(device)
-            optimizer.zero_grad()
-            
-            output = model(data)
-            loss = loss_criterion(output, target)
-            loss.backward()
-            optimizer.step()
-
-        macro_acc, micro_acc = validate(model, val_loader)
-        pbar.set_description(f'Macro Acc: {macro_acc:.4f}, Micro Acc: {micro_acc:.4f}')
-        pbar.update(1)
-    pbar.close()
+            macro_acc, micro_acc = validate(model, val_loader)
+            pbar.set_description(f'Macro Acc: {macro_acc:.4f}, Micro Acc: {micro_acc:.4f}')
+            pbar.update(1)
 
 
 # %%
