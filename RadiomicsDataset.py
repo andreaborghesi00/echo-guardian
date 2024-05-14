@@ -8,7 +8,6 @@ from tqdm import tqdm
 from sklearn.utils.validation import check_is_fitted
 import json
 import re
-import random
 
 class RadiomicsDataset(Dataset):
     def __init__(self, img_mask_paths, labels, scaler=None, json_exclude_path=None, exclusion_class="classifier", transform = None):
@@ -52,12 +51,8 @@ class RadiomicsDataset(Dataset):
 
         self.scaler = scaler
         
-        self.labels = torch.tensor(labels.tolist())
-        self.labels = self.labels.unsqueeze(1).float()
         self.imarray = []
         self.maskarray = []
-        self.images = []
-        self.masks = []
         
         self.img_mask_paths = img_mask_paths
         
@@ -67,15 +62,17 @@ class RadiomicsDataset(Dataset):
             with open(json_exclude_path, 'r') as f:
                 json_data = json.load(f)                
 
+        # populate them later in the loop
         self.rad_features = []
+        self.labels = []
+
         for i in tqdm(range(len(labels))):
             image_path = self.img_mask_paths[i][0]
             mask_path = self.img_mask_paths[i][1]
             
-            # if json_exclude_path is not None:
-            if json_exclude_path is not None and 'benign' in image_path and int(re.findall(r'\d+', image_path)[0]) in json_data[exclusion_class]['benign']:
+            if json_exclude_path is not None and 'benign' in mask_path and int(re.findall(r'\d+', mask_path)[0]) in json_data[exclusion_class]['benign']:
                 continue
-            elif json_exclude_path is not None and 'malignant' in image_path and int(re.findall(r'\d+', image_path)[0]) in json_data[exclusion_class]['malignant']:
+            elif json_exclude_path is not None and 'malignant' in mask_path and int(re.findall(r'\d+', mask_path)[0]) in json_data[exclusion_class]['malignant']:
                 continue
 
             image = sitk.ReadImage(image_path, sitk.sitkUInt8)
@@ -87,16 +84,20 @@ class RadiomicsDataset(Dataset):
             features = self.extractor.execute(image, mask, voxelBased=False, label=255)
             features_values = [float(features[key]) for key in features if key.startswith('original_')]
             self.rad_features.append(features_values)
-        self.length = len(self.rad_features)
+            self.labels.append(labels[i])
 
-        try: 
-            self.rad_features = self.scaler.transform(np.array(self.rad_features))        
-        except:
-            self.scaler = self.scaler.fit(np.array(self.rad_features))
-            self.rad_features = self.scaler.transform(np.array(self.rad_features))        
 
-        self.rad_features = torch.tensor(self.rad_features).float()        
+        if self.scaler is not None:
+            try: 
+                self.rad_features = self.scaler.transform(np.array(self.rad_features))        
+            except:
+                self.scaler = self.scaler.fit(np.array(self.rad_features))
+                self.rad_features = self.scaler.transform(np.array(self.rad_features))        
 
+        self.rad_features = torch.tensor(self.rad_features).float() 
+        self.labels = torch.tensor(self.labels).unsqueeze(1).float() # Unsqueeze for BCE loss 2D input requirements
+
+        self.length = len(self.rad_features)    
         
     def __len__(self):
         return self.length
@@ -112,7 +113,11 @@ class RadiomicsDataset(Dataset):
                 print('Error in feature extraction:', self.img_mask_paths[idx][0], self.img_mask_paths[idx][1])
                 return self.rad_features[idx], self.labels[idx]
             features_values = [float(features[key]) for key in features if key.startswith('original_')]
-            feat = torch.tensor(self.scaler.transform(np.array(features_values).reshape(1, -1))).float()[0]
+
+            if self.scaler is not None:
+                feat = torch.tensor(self.scaler.transform(np.array(features_values).reshape(1, -1))).float()[0]
+            else:
+                feat = torch.tensor(features_values).float()
 
         #print (feat.shape, self.labels[idx].shape)
         #print(feat)

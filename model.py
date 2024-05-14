@@ -6,7 +6,7 @@
 #       extension: .py
 #       format_name: percent
 #       format_version: '1.3'
-#       jupytext_version: 1.16.1
+#       jupytext_version: 1.16.2
 #   kernelspec:
 #     display_name: Python 3
 #     language: python
@@ -91,28 +91,21 @@ df = pd.DataFrame(columns=['image', 'mask', 'label'])
 
 for folder in os.listdir(path):
     for file in os.listdir(os.path.join(path, folder)):
-        if file.find('mask') == -1: # if it's an image, add it to the dataframe raw
+        # Only loop through the masks so that we can handle duplicate masks easily
+        if 'mask' in file:
+            img_file = file.split('_mask')[0] + '.png'
             df = pd.concat([df, pd.DataFrame({
-                'image': [os.path.join(path, folder, file)],
-                'mask': [os.path.join(path, folder, file.replace('.png', '_mask.png'))],
+                'image': [os.path.join(path, folder, img_file)],
+                'mask': [os.path.join(path, folder, file)],
                 'label': [0 if 'benign' in file else 1]
             })])
-        else: # if it's a mask, check if there are multiple masks since we're already iterating over the files
-            base_name = file.split('.')[0]
-            for i in range(1, 4):
-                mask_file = f"{base_name[:-5]}_mask_{i}.png"
-                if os.path.exists(os.path.join(path, folder, mask_file)):
-                    df = pd.concat([df, pd.DataFrame({
-                        'image': [os.path.join(path, folder, file)],
-                        'mask': [os.path.join(path, folder, mask_file)],
-                        'label': [0 if 'benign' in file else 1]
-                    })])
 
 df.index = range(1, len(df) + 1)
-df
+print(df.shape)
 
 idx_benign = df[df['image'].str.contains('benign \(7\)')].index
 print(df['image'].loc[idx_benign])
+print(df.head())
 
 # %% [markdown]
 # ### Sample: Radiomics feature extraction
@@ -196,23 +189,23 @@ data_val, data_test, label_val, label_test = train_test_split(data_valtest, labe
 train_transform = A.Compose([
     A.HorizontalFlip(p=0.5),
     A.VerticalFlip(p=0.5),
-    A.RandomRotate90(p=0.5),
-    A.Transpose(p=0.5),
-    A.ShiftScaleRotate(shift_limit=0.1, scale_limit=0.1, rotate_limit=45, p=0.5),
-    A.RandomBrightnessContrast(p=0.5),
-    A.RandomGamma(p=0.5),
-    A.GaussNoise(p=0.5),
-    A.Blur(p=0.5),
-    A.Normalize(mean=(0.5,), std=(0.5,), max_pixel_value=255.0),
+    # A.Transpose(p=0.5),
+    A.ShiftScaleRotate(shift_limit=0.1, scale_limit=0.1, rotate_limit=5, p=0.5),
+    # A.RandomBrightnessContrast(p=0.5),
+    # A.RandomGamma(p=0.5),
+    A.GaussNoise(var_limit=(5, 20), p=0.5),
+    A.Blur(blur_limit=3, p=0.5),
+    # A.Normalize(mean=(0.5,), std=(0.5,), max_pixel_value=255.0),
 ])
 
 val_transform = A.Compose([
-    A.Normalize(mean=(0.5,), std=(0.5,), max_pixel_value=255.0),
+    # A.Normalize(mean=(0.5,), std=(0.5,), max_pixel_value=255.0),
+    A.GaussNoise(p=0.5),
 ])
 
 
 # %%
-train_ds = RadiomicsDataset(data_train, label_train, scaler=StandardScaler(), transform=train_transform, json_exclude_path='excludedImages.json', exclusion_class='classifier')
+train_ds = RadiomicsDataset(data_train, label_train, scaler=RobustScaler(), transform=train_transform, json_exclude_path='excludedImages.json', exclusion_class='classifier')
 test_ds  = RadiomicsDataset(data_test, label_test, scaler=train_ds.scaler, transform=val_transform, json_exclude_path='excludedImages.json', exclusion_class='classifier')
 val_ds   = RadiomicsDataset(data_val, label_val, scaler=train_ds.scaler, transform=val_transform, json_exclude_path='excludedImages.json', exclusion_class='classifier')
 
@@ -235,6 +228,26 @@ else:
     print('Saved train_dl and val_dl to file')
 
 # %% [markdown]
+# ### Visualize the features
+
+# %%
+print('train')
+print(np.shape(data_train))
+print(np.shape(label_train))
+print(np.shape(train_ds.rad_features))
+print(np.shape(train_ds.labels))
+print('val')
+print(np.shape(data_val))
+print(np.shape(label_val))
+print(np.shape(val_ds.rad_features))
+print(np.shape(val_ds.labels))
+print('test')
+print(np.shape(data_test))
+print(np.shape(label_test))
+print(np.shape(test_ds.rad_features))
+print(np.shape(test_ds.labels))
+
+# %% [markdown]
 # # Classifiers
 
 # %% [markdown]
@@ -252,20 +265,55 @@ print(device)
 class SimpleNet(nn.Module):
     def __init__(self):
         super(SimpleNet, self).__init__()
-        self.fc1 = nn.Linear(101, 256)
-        self.fc2 = nn.Linear(256, 128)
-        self.fc3 = nn.Linear(128, 32)
-        self.fc4 = nn.Linear(32, 1)
+        self.fc1 = nn.Linear(101, 1024)
+        self.fc2 = nn.Linear(1024, 128)
+        self.fc3 = nn.Linear(128, 16)
+        self.fc4 = nn.Linear(16, 1)
+        self.dropout = nn.Dropout(p=0.5)
+
     def forward(self, x):
-        x = F.relu(self.fc1(x))
-        x = F.relu(self.fc2(x))
-        x = F.relu(self.fc3(x))
+        x = F.leaky_relu(self.fc1(x))
+        x = self.dropout(x)
+        x = F.leaky_relu(self.fc2(x))
+        x = self.dropout(x)
+        x = F.leaky_relu(self.fc3(x))
+        x = self.dropout(x)
         x = torch.sigmoid(self.fc4(x))
         return x
+    
+class RadiomicsNet(nn.Module):
+    def __init__(self, input_size=101, hidden_size=1024, num_layers=4, dropout_rate=0.2):
+        super(RadiomicsNet, self).__init__()
+        self.input_size = input_size
+        self.hidden_size = hidden_size
+        self.num_layers = num_layers
+        self.dropout_rate = dropout_rate
+
+        self.layers = nn.ModuleList()
+        self.layers.append(nn.Linear(input_size, hidden_size))
+        self.layers.append(nn.BatchNorm1d(hidden_size))
+        self.layers.append(nn.ReLU())
+        self.layers.append(nn.Dropout(dropout_rate))
+
+        for i in range(num_layers - 1):
+            self.layers.append(nn.Linear(hidden_size // (2**i), hidden_size // (2**(i + 1)) ))
+            self.layers.append(nn.BatchNorm1d(hidden_size // (2**(i + 1)) ))
+            self.layers.append(nn.ReLU())
+            self.layers.append(nn.Dropout(dropout_rate))
+
+        self.output_layer = nn.Linear(hidden_size // (2**(num_layers - 1)), 1)
+
+    def forward(self, x):
+        for layer in self.layers:
+            x = layer(x)
+        x = self.output_layer(x)
+        return torch.sigmoid(x)
 
 
 # %%
 simple_net = SimpleNet().to(device)
+radiomics_net = RadiomicsNet().to(device)
+print(radiomics_net)
 
 
 # %%
@@ -285,6 +333,13 @@ def validate(model, data_loader):
 
 # %%
 def train(model, train_loader, val_loader, optimizer, loss_criterion, epochs=10):
+    try:
+        pbar.close()
+    except:
+        pass
+
+    pbar = tqdm(total=epochs, desc='Training', leave=False, unit='epoch')
+
     # model.train()
     for epoch in tqdm(range(epochs)):
         for data, target in train_loader:
@@ -297,14 +352,16 @@ def train(model, train_loader, val_loader, optimizer, loss_criterion, epochs=10)
             optimizer.step()
 
         macro_acc, micro_acc = validate(model, val_loader)
-        print(f'Epoch: {epoch}, Macro Acc: {macro_acc}, Micro Acc: {micro_acc}')
+        pbar.set_description(f'Macro Acc: {macro_acc:.4f}, Micro Acc: {micro_acc:.4f}')
+        pbar.update(1)
+    pbar.close()
 
 
 # %%
-optimizer = optim.Adam(simple_net.parameters(), lr=0.001)
+optimizer = optim.Adam(simple_net.parameters(), lr=0.0001)
 loss_criterion = nn.BCELoss()
 
-train(simple_net, train_dl, val_dl, optimizer, loss_criterion, epochs=500)
+train(radiomics_net, train_dl, val_dl, optimizer, loss_criterion, epochs=500)
 
 # %%
 macro_acc, micro_acc = validate(simple_net, test_dl)
@@ -345,38 +402,3 @@ from sklearn.metrics import accuracy_score
 
 best_model.predict(test_data)
 print(f'best model is {best_model.__class__.__name__} with accuracy {accuracy_score(test_labels, best_model.predict(test_data))}')
-
-# %% [GUI]
-import streamlit as st
-import plotly.graph_objects as go
-import plotly.express as px
-import SimpleITK as sitk
-
-print(df.iloc[0, 0])
-img = sitk.GetArrayFromImage(sitk.ReadImage(df.iloc[0, 0]))
-np.shape(img)
-fig = px.imshow(img)
-
-fig.update_layout(
-    dragmode="drawclosedpath",
-    newshape_line_color="cyan",
-    title_text="Draw a path to separate versicolor and virginica",
-)
-config = dict(
-    {
-        "scrollZoom": True,
-        "displayModeBar": True,
-        # 'editable'              : True,
-        "modeBarButtonsToAdd": [
-            "drawline", 
-            "drawopenpath",
-            "drawclosedpath",
-            "drawcircle",
-            "drawrect",
-            "eraseshape",
-        ],
-        "toImageButtonOptions": {"format": "svg"},
-    }
-)
-
-st.plotly_chart(fig, config=config)
