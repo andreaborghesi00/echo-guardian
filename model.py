@@ -265,19 +265,21 @@ print(device)
 class SimpleNet(nn.Module):
     def __init__(self):
         super(SimpleNet, self).__init__()
-        self.fc1 = nn.Linear(101, 1024)
-        self.fc2 = nn.Linear(1024, 128)
+        self.fc1 = nn.Linear(101, 512)
+        self.fc2 = nn.Linear(512, 128)
         self.fc3 = nn.Linear(128, 16)
         self.fc4 = nn.Linear(16, 1)
         self.dropout = nn.Dropout(p=0.5)
+        self.batchnorm1 = nn.BatchNorm1d(512)
+        self.batchnorm2 = nn.BatchNorm1d(128)
+        self.batchnorm3 = nn.BatchNorm1d(16)
 
     def forward(self, x):
-        x = F.leaky_relu(self.fc1(x))
+        x = F.leaky_relu(self.batchnorm1(self.fc1(x)))
         x = self.dropout(x)
-        x = F.leaky_relu(self.fc2(x))
+        x = F.leaky_relu(self.batchnorm2(self.fc2(x)))
         x = self.dropout(x)
-        x = F.leaky_relu(self.fc3(x))
-        x = self.dropout(x)
+        x = F.leaky_relu(self.batchnorm3(self.fc3(x)))
         x = torch.sigmoid(self.fc4(x))
         return x
     
@@ -332,32 +334,50 @@ def validate(model, data_loader):
 
 
 # %%
-def train(model, train_loader, val_loader, optimizer, loss_criterion, epochs=10):
-    with tqdm(total=epochs, desc='Training', leave=False, unit='epoch') as pbar:
-        for epoch in range(epochs):
-            for data, target in train_loader:
-                data, target = data.to(device), target.to(device)
-                optimizer.zero_grad()
+from functools import wraps
 
-                output = model(data)
-                loss = loss_criterion(output, target)
-                loss.backward()
-                optimizer.step()
+def tqdm_decorator(use_tqdm):
+    def decorator(func):
+        @wraps(func)
+        def wrapper(*args, **kwargs):
+            if use_tqdm:
+                with tqdm(total=kwargs['epochs'], desc='Training', leave=True, unit='epoch') as pbar:
+                    kwargs['pbar'] = pbar
+                    return func(*args, **kwargs)
+            else:
+                return func(*args, **kwargs)
+        return wrapper
+    return decorator
 
-            macro_acc, micro_acc = validate(model, val_loader)
-            pbar.set_description(f'Macro Acc: {macro_acc:.4f}, Micro Acc: {micro_acc:.4f}')
+@tqdm_decorator(use_tqdm=True)
+def train(model, train_loader, val_loader, optimizer, loss_criterion, epochs=10, pbar=None):
+    for epoch in range(epochs):
+        for data, target in train_loader:
+            data, target = data.to(device), target.to(device)
+            optimizer.zero_grad()
+
+            output = model(data)
+            loss = loss_criterion(output, target)
+            loss.backward()
+            optimizer.step()
+
+        macro_acc, micro_acc = validate(model, val_loader)
+        if pbar is not None:
+            pbar.set_description(f'Epoch: {epoch + 1} - Macro Acc: {macro_acc:.3f}, Micro Acc: {micro_acc:.3f}')
             pbar.update(1)
+        else:
+            print(f'Epoch: {epoch + 1} - Macro Acc: {macro_acc:.3f}, Micro Acc: {micro_acc:.3f}')
 
 
 # %%
-optimizer = optim.Adam(simple_net.parameters(), lr=0.0001)
+optimizer = optim.Adam(simple_net.parameters(), lr=0.001)
 loss_criterion = nn.BCELoss()
 
-train(radiomics_net, train_dl, val_dl, optimizer, loss_criterion, epochs=500)
+train(simple_net, train_dl, val_dl, optimizer, loss_criterion, epochs=10)
 
 # %%
 macro_acc, micro_acc = validate(simple_net, test_dl)
-print(f'Test Macro Acc: {macro_acc}, Test Micro Acc: {micro_acc}')
+print(f'Test Macro Acc: {macro_acc:.3f}, Test Micro Acc: {micro_acc:.3f}')
 
 # %% [markdown]
 # # Random Forests and SVM:
