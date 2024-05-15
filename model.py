@@ -74,12 +74,13 @@ import torch.optim as optim
 import torch.nn.functional as F
 from torch.utils.data import DataLoader, Dataset
 from RadiomicsDataset import RadiomicsDataset
+from SegmentationDataset import SegmentationDataset
 import albumentations as A
 import torchmetrics
 from torchsummary import summary
 from tqdm import tqdm
 from sklearn.preprocessing import StandardScaler, MinMaxScaler, RobustScaler
-import sklearn
+from torchvision import transforms
 
 # %% [markdown]
 # # Data loading
@@ -378,6 +379,83 @@ train(simple_net, train_dl, val_dl, optimizer, loss_criterion, epochs=10)
 # %%
 macro_acc, micro_acc = validate(simple_net, test_dl)
 print(f'Test Macro Acc: {macro_acc:.3f}, Test Micro Acc: {micro_acc:.3f}')
+
+# %% [markdown]
+# # Segmentation
+
+# %%
+# augmentations
+segmentation_augmentation = A.Compose([
+    A.HorizontalFlip(p=0.5),
+    A.VerticalFlip(p=0.5),
+    A.Transpose(p=0.5),
+    A.ShiftScaleRotate(shift_limit=0.1, scale_limit=0.1, rotate_limit=5, p=0.5),
+    A.RandomBrightnessContrast(p=0.5),
+    A.RandomGamma(p=0.5),
+    A.GaussNoise(var_limit=(5, 20), p=0.5),
+    A.Blur(blur_limit=5, p=0.5),
+])
+
+# pytorch transforms
+segmentation_transform = transforms.Compose([
+    transforms.Resize((512, 512)),
+    transforms.ToTensor(),
+    transforms.Normalize(mean=[0.5], std=[0.5])
+])
+
+# %%
+train_segment_ds = SegmentationDataset(data_train, label_train, augmentation=segmentation_augmentation, 
+                                    transform=segmentation_transform, json_exclude_path='excludedImages.json', exclusion_class='cnn')
+val_segment_ds = SegmentationDataset(data_val, label_val, augmentation=segmentation_augmentation,
+                                    transform=segmentation_transform, json_exclude_path='excludedImages.json', exclusion_class='cnn')
+test_segment_ds = SegmentationDataset(data_test, label_test, augmentation=segmentation_augmentation,
+                                    transform=segmentation_transform, json_exclude_path='excludedImages.json', exclusion_class='cnn')
+
+# %%
+# Create and save or load the dataloaders
+batch_size = 64
+force_dataloader_creation = True
+data_dir = 'data'
+
+train_segment_dl_path = os.path.join(data_dir, 'train_segment_dl.npy')
+test_segment_dl_path = os.path.join(data_dir, 'test_segment_dl.npy')
+val_segment_dl_path = os.path.join(data_dir, 'val_segment_dl.npy')
+
+if (os.path.exists(train_segment_dl_path) and os.path.exists(val_segment_dl_path) and os.path.exists(test_segment_dl_path)) and not force_dataloader_creation:
+    # Load
+    train_segment_dl = np.load(train_segment_dl_path, allow_pickle=True)
+    test_segment_dl  = np.load(test_segment_dl_path, allow_pickle=True)
+    val_segment_dl   = np.load(val_segment_dl_path, allow_pickle=True)
+    print('Loaded train_segment_dl, val_segment_dl and test_segment_dl from file')
+else:
+    # Create and save
+    train_segment_dl = DataLoader(train_segment_ds, batch_size=batch_size, shuffle=True, num_workers=8)
+    test_segment_dl  = DataLoader(test_segment_ds, batch_size=batch_size, num_workers=8)
+    val_segment_dl   = DataLoader(val_segment_ds, batch_size=batch_size, num_workers=8)
+    np.save(train_segment_dl_path, train_segment_dl)
+    np.save(test_segment_dl_path, test_segment_dl)
+    np.save(val_segment_dl_path, val_segment_dl)
+    print('Saved train_segment_dl, val_segment_dl and test_segment_dl to file')
+
+# %%
+print(f'train: {len(train_segment_ds)} {len(train_segment_ds.img_mask_paths)}')
+print(f'val: {len(val_segment_ds)} {len(val_segment_ds.img_mask_paths)}')
+print(f'test: {len(test_segment_ds)} {len(test_segment_ds.img_mask_paths)}')
+
+# %%
+import segmentation_models_pytorch as smp
+
+segmentation_model = smp.Unet(
+    encoder_name="resnet34",        # choose encoder, e.g. mobilenet_v2 or efficientnet-b7
+    encoder_weights="imagenet",     # use `imagenet` pre-trained weights for encoder initialization
+    in_channels=1,                  # model input channels (1 for gray-scale images, 3 for RGB, etc.)
+    classes=2,                      # model output channels (number of classes in your dataset)
+)
+
+optimizer = optim.Adam(segmentation_model.parameters(), lr=0.001)
+loss_criterion = nn.BCELoss()
+
+train(segmentation_model, train_segment_dl, val_segment_dl, optimizer, loss_criterion, epochs=10)
 
 # %% [markdown]
 # # Random Forests and SVM:
