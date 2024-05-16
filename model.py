@@ -98,81 +98,12 @@ for folder in os.listdir(path):
             df = pd.concat([df, pd.DataFrame({
                 'image': [os.path.join(path, folder, img_file)],
                 'mask': [os.path.join(path, folder, file)],
-                'label': [0 if 'benign' in file else 1]
+                'label': [1 if 'malignant' in file else 0]
             })])
 
 df.index = range(1, len(df) + 1)
 print(df.shape)
-
-idx_benign = df[df['image'].str.contains('benign \(7\)')].index
-print(df['image'].loc[idx_benign])
 print(df.head())
-
-# %% [markdown]
-# ### Sample: Radiomics feature extraction
-
-# %%
-glcm_feats = keys_list = [
-    # 'original_glcm_Autocorrelation',
-    'Autocorrelation',
-    'ClusterProminence',
-    'ClusterShade',
-    'ClusterTendency',
-    'Contrast',
-    'Correlation',
-    'DifferenceAverage',
-    'DifferenceEntropy',
-    'DifferenceVariance',
-    'Id',
-    'Idm',
-    'Idmn',
-    'Idn',
-    'Imc1',
-    'Imc2',
-    'InverseVariance',
-    'JointAverage',
-    'JointEnergy',
-    'JointEntropy',
-    'MCC',
-    'MaximumProbability',
-    # 'SumAverage',
-    'SumEntropy',
-    'SumSquares'
-]
-
-# %%
-# load one image and mask as a sample as numpy array
-image_path = df['image'][idx_benign]
-mask_path = df['mask'][idx_benign]
-print(df['image'].loc[idx_benign])
-
-# Configure the feature extractor
-extractor = radiomics.featureextractor.RadiomicsFeatureExtractor()
-# extractor.enableAllFeatures()
-# extractor.disableAllFeatures()
-# extractor.enableFeatureClassByName('firstorder')
-
-extractor.enableAllFeatures()
-extractor.disableAllFeatures()
-extractor.enableFeatureClassByName('firstorder')
-extractor.enableFeatureClassByName('shape2D')
-extractor.enableFeaturesByName(glcm=glcm_feats)
-extractor.enableFeatureClassByName('gldm')
-extractor.enableFeatureClassByName('glrlm')
-extractor.enableFeatureClassByName('glszm')
-extractor.enableFeatureClassByName('ngtdm')
-# extractor.enableFeatureClassByName()
-
-image = sitk.ReadImage(image_path, sitk.sitkUInt32)
-mask = sitk.ReadImage(mask_path, sitk.sitkUInt8)
-features = extractor.execute(image, mask, voxelBased=False, label=255)
-
-# %%
-clean_features_dict = {key: float(features[key]) for key in features if key.startswith('original_')}
-clean_features_dict # these are they keys features that we will work with
-
-# %%
-len(clean_features_dict)
 
 # %% [markdown]
 # ## Splitting, datasets, data loaders
@@ -180,6 +111,8 @@ len(clean_features_dict)
 # %%
 img_mask_paths = [(df['image'].iloc[idx], df['mask'].iloc[idx]) for idx in range(len(df))]
 labels = df['label'].values
+print(np.shape(labels))
+print(labels)
 
 # %%
 data_train, data_valtest, label_train, label_valtest = train_test_split(img_mask_paths, labels, test_size=0.2, random_state=69420, stratify=labels)
@@ -206,27 +139,35 @@ val_transform = A.Compose([
 
 
 # %%
-train_ds = RadiomicsDataset(data_train, label_train, scaler=RobustScaler(), transform=train_transform, json_exclude_path='excludedImages.json', exclusion_class='classifier')
-test_ds  = RadiomicsDataset(data_test, label_test, scaler=train_ds.scaler, transform=val_transform, json_exclude_path='excludedImages.json', exclusion_class='classifier')
-val_ds   = RadiomicsDataset(data_val, label_val, scaler=train_ds.scaler, transform=val_transform, json_exclude_path='excludedImages.json', exclusion_class='classifier')
+train_classifier_ds = RadiomicsDataset(data_train, label_train, scaler=RobustScaler(), transform=train_transform, json_exclude_path='excludedImages.json', exclusion_class='classifier')
+test_classifier_ds  = RadiomicsDataset(data_test, label_test, scaler=train_classifier_ds.scaler, transform=val_transform, json_exclude_path='excludedImages.json', exclusion_class='classifier')
+val_classifier_ds   = RadiomicsDataset(data_val, label_val, scaler=train_classifier_ds.scaler, transform=val_transform, json_exclude_path='excludedImages.json', exclusion_class='classifier')
 
 # %%
+# Create and save or load the dataloaders
 batch_size = 64
 force_dataloader_creation = True
+data_dir = 'data'
 
-if (os.path.exists('train_dl.npy') and os.path.exists('val_dl.npy') and os.path.exists('test_dl.npy')) and not force_dataloader_creation:
-    train_dl = np.load('train_dl.npy', allow_pickle=True)
-    test_dl  = np.load('test_dl.npy', allow_pickle=True)
-    val_dl   = np.load('val_dl.npy', allow_pickle=True)
-    print('Loaded train_dl and val_dl from file')
+train_classifier_dl_path = os.path.join(data_dir, 'train_classifier_dl.npy')
+test_classifier_dl_path = os.path.join(data_dir, 'test_classifier_dl.npy')
+val_classifier_dl_path = os.path.join(data_dir, 'val_classifier_dl.npy')
+
+if (os.path.exists(train_classifier_dl_path) and os.path.exists(val_classifier_dl_path) and os.path.exists(test_classifier_dl_path)) and not force_dataloader_creation:
+    # Load
+    train_classifier_dl = np.load(train_classifier_dl_path, allow_pickle=True)
+    test_classifier_dl  = np.load(test_classifier_dl_path, allow_pickle=True)
+    val_classifier_dl   = np.load(val_classifier_dl_path, allow_pickle=True)
+    print('Loaded train_classifier_dl, val_classifier_dl and test_classifier_dl from file')
 else:
-    train_dl = DataLoader(train_ds, batch_size=batch_size, shuffle=True, num_workers=8)
-    test_dl  = DataLoader(test_ds, batch_size=batch_size, num_workers=8)
-    val_dl   = DataLoader(val_ds, batch_size=batch_size, num_workers=8)
-    np.save('train_dl.npy', train_dl)
-    np.save('test_dl.npy', test_dl)
-    np.save('val_dl.npy', val_dl)
-    print('Saved train_dl and val_dl to file')
+    # Create and save
+    train_classifier_dl = DataLoader(train_classifier_ds, batch_size=batch_size, shuffle=True, num_workers=8)
+    test_classifier_dl  = DataLoader(test_classifier_ds, batch_size=batch_size, num_workers=8)
+    val_classifier_dl   = DataLoader(val_classifier_ds, batch_size=batch_size, num_workers=8)
+    np.save(train_classifier_dl_path, train_classifier_dl)
+    np.save(test_classifier_dl_path, test_classifier_dl)
+    np.save(val_classifier_dl_path, val_classifier_dl)
+    print('Saved train_classifier_dl, val_classifier_dl and test_classifier_dl to file')
 
 # %% [markdown]
 # ### Visualize the features
@@ -235,18 +176,18 @@ else:
 print('train')
 print(np.shape(data_train))
 print(np.shape(label_train))
-print(np.shape(train_ds.rad_features))
-print(np.shape(train_ds.labels))
+print(np.shape(train_classifier_ds.rad_features))
+print(np.shape(train_classifier_ds.labels))
 print('val')
 print(np.shape(data_val))
 print(np.shape(label_val))
-print(np.shape(val_ds.rad_features))
-print(np.shape(val_ds.labels))
+print(np.shape(val_classifier_ds.rad_features))
+print(np.shape(val_classifier_ds.labels))
 print('test')
 print(np.shape(data_test))
 print(np.shape(label_test))
-print(np.shape(test_ds.rad_features))
-print(np.shape(test_ds.labels))
+print(np.shape(test_classifier_ds.rad_features))
+print(np.shape(test_classifier_ds.labels))
 
 # %% [markdown]
 # # Classifiers
@@ -269,7 +210,7 @@ class SimpleNet(nn.Module):
         self.fc1 = nn.Linear(101, 512)
         self.fc2 = nn.Linear(512, 128)
         self.fc3 = nn.Linear(128, 16)
-        self.fc4 = nn.Linear(16, 1)
+        self.fc4 = nn.Linear(16, 2) # 2 classes
         self.dropout = nn.Dropout(p=0.5)
         self.batchnorm1 = nn.BatchNorm1d(512)
         self.batchnorm2 = nn.BatchNorm1d(128)
@@ -281,7 +222,7 @@ class SimpleNet(nn.Module):
         x = F.leaky_relu(self.batchnorm2(self.fc2(x)))
         x = self.dropout(x)
         x = F.leaky_relu(self.batchnorm3(self.fc3(x)))
-        x = torch.sigmoid(self.fc4(x))
+        x = self.fc4(x)
         return x
     
 class RadiomicsNet(nn.Module):
@@ -304,13 +245,13 @@ class RadiomicsNet(nn.Module):
             self.layers.append(nn.LeakyReLU())
             self.layers.append(nn.Dropout(dropout_rate))
 
-        self.output_layer = nn.Linear(hidden_size // (2**(num_layers - 1)), 1)
+        self.output_layer = nn.Linear(hidden_size // (2**(num_layers - 1)), 2)
 
     def forward(self, x):
         for layer in self.layers:
             x = layer(x)
         x = self.output_layer(x)
-        return torch.sigmoid(x)
+        return F.leaky_relu(x)
 
 
 # %%
@@ -320,18 +261,30 @@ print(radiomics_net)
 
 
 # %%
+def compute_specifity_sensitivity(output, target):
+    # Compute confusion matrix
+    confusion_matrix = torchmetrics.functional.confusion_matrix(output, target, task='multiclass', num_classes=2)
+    # Compute specifity and sensitivity
+    specifity = confusion_matrix[0, 0] / (confusion_matrix[0, 0] + confusion_matrix[0, 1])
+    sensitivity = confusion_matrix[1, 1] / (confusion_matrix[1, 1] + confusion_matrix[1, 0])
+    return specifity, sensitivity
+
+
+# %%
 def validate(model, data_loader):
-    macro_acc_metric = torchmetrics.Accuracy(task='binary', average='macro').to(device)
-    micro_acc_metric = torchmetrics.Accuracy(task='binary', average='micro').to(device)
+    macro_acc_metric = torchmetrics.Accuracy(task='multiclass', num_classes=2, average='macro').to(device)
+    micro_acc_metric = torchmetrics.Accuracy(task='multiclass', num_classes=2, average='micro').to(device)
     model.eval()
     with torch.no_grad():
         for data, target in data_loader:
             data, target = data.to(device), target.to(device)
+            target = target.squeeze().long()            
             output = model(data)
             macro_acc_metric.update(output, target)
             micro_acc_metric.update(output, target)
+            specifity, sensitivity = compute_specifity_sensitivity(output, target)
     model.train()
-    return macro_acc_metric.compute(), micro_acc_metric.compute()
+    return macro_acc_metric.compute(), micro_acc_metric.compute(), specifity, sensitivity
 
 
 # %%
@@ -350,35 +303,39 @@ def tqdm_decorator(use_tqdm):
         return wrapper
     return decorator
 
-@tqdm_decorator(use_tqdm=True)
+@tqdm_decorator(use_tqdm=False)
 def train(model, train_loader, val_loader, optimizer, loss_criterion, epochs=10, pbar=None):
     for epoch in range(epochs):
         for data, target in train_loader:
             data, target = data.to(device), target.to(device)
+            target = target.squeeze().long()
             optimizer.zero_grad()
-
             output = model(data)
             loss = loss_criterion(output, target)
             loss.backward()
             optimizer.step()
 
-        macro_acc, micro_acc = validate(model, val_loader)
+        macro_acc, micro_acc, specifity, sensitivity = validate(model, val_loader)
         if pbar is not None:
-            pbar.set_description(f'Epoch: {epoch + 1} - Macro Acc: {macro_acc:.3f}, Micro Acc: {micro_acc:.3f}')
+            pbar.set_description(f'Epoch: {epoch + 1} - Macro Acc: {macro_acc:.3f}, Micro Acc: {micro_acc:.3f}, Specificity {specifity:.3f}, Sensitivity {sensitivity:.3f}')
             pbar.update(1)
         else:
-            print(f'Epoch: {epoch + 1} - Macro Acc: {macro_acc:.3f}, Micro Acc: {micro_acc:.3f}')
+            print(f'Epoch: {epoch + 1} - Macro Acc: {macro_acc:.3f}, Micro Acc: {micro_acc:.3f}, Specificity {specifity:.3f}, Sensitivity {sensitivity:.3f}')
 
 
 # %%
-optimizer = optim.Adam(simple_net.parameters(), lr=0.001)
-loss_criterion = nn.BCELoss()
+optimizer = optim.Adam(simple_net.parameters(), lr=5e-4, weight_decay=1e-5)
+loss_criterion = nn.CrossEntropyLoss()
 
-train(simple_net, train_dl, val_dl, optimizer, loss_criterion, epochs=10)
+train(simple_net, train_classifier_dl, val_classifier_dl, optimizer, loss_criterion, epochs=50)
 
 # %%
-macro_acc, micro_acc = validate(simple_net, test_dl)
+macro_acc, micro_acc = validate(simple_net, test_classifier_dl)
 print(f'Test Macro Acc: {macro_acc:.3f}, Test Micro Acc: {micro_acc:.3f}')
+
+# Test with best model so far
+# Does not work as we've changed the network architecture
+# best_model_dict = torch.load('models/simple_net_0dot914_accuracy.pth')
 
 # %% [markdown]
 # # Segmentation
@@ -461,13 +418,13 @@ train(segmentation_model, train_segment_dl, val_segment_dl, optimizer, loss_crit
 # # Random Forests and SVM:
 
 # %%
-train_data = np.array([train_ds.__getitem__(idx)[0].numpy() for idx in range(len(train_ds))])
-test_data  = np.array([test_ds.__getitem__(idx)[0].numpy() for idx in range(len(test_ds))])
-val_data   = np.array([val_ds.__getitem__(idx)[0].numpy() for idx in range(len(val_ds))])
+train_data = np.array([train_classifier_ds.__getitem__(idx)[0].numpy() for idx in range(len(train_classifier_ds))])
+test_data  = np.array([test_classifier_ds.__getitem__(idx)[0].numpy() for idx in range(len(test_classifier_ds))])
+val_data   = np.array([val_classifier_ds.__getitem__(idx)[0].numpy() for idx in range(len(val_classifier_ds))])
 
-train_labels = np.array([train_ds.__getitem__(idx)[1] for idx in range(len(train_ds))]).ravel()
-test_labels  = np.array([test_ds.__getitem__(idx)[1] for idx in range(len(test_ds))]).ravel()
-val_labels   = np.array([val_ds.__getitem__(idx)[1] for idx in range(len(val_ds))]).ravel()
+train_labels = np.array([train_classifier_ds.__getitem__(idx)[1] for idx in range(len(train_classifier_ds))]).ravel()
+test_labels  = np.array([test_classifier_ds.__getitem__(idx)[1] for idx in range(len(test_classifier_ds))]).ravel()
+val_labels   = np.array([val_classifier_ds.__getitem__(idx)[1] for idx in range(len(val_classifier_ds))]).ravel()
 
 # %%
 from utils import grid_search
