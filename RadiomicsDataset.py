@@ -11,6 +11,7 @@ import re
 
 class RadiomicsDataset(Dataset):
     def __init__(self, img_mask_paths, labels, scaler=None, json_exclude_path=None, exclusion_class="classifier", transform = None):
+        radiomics.logger.setLevel(40)
         glcm_feats = [ # i know it's annoying, and it took way too long to find, but this is how you exclude a feature from the extraction
             'Autocorrelation',
             'ClusterProminence',
