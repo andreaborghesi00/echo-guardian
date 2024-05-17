@@ -1,9 +1,11 @@
 from torch.utils.data import Dataset
 import cv2
-from torch import tensor
+import torch
 import json
 from tqdm import tqdm
 import re
+from PIL import Image
+import numpy as np
 
 class SegmentationDataset(Dataset):
     def __init__(self, img_mask_paths, labels, augmentation=None, transform = None, json_exclude_path=None, exclusion_class="cnn"):
@@ -39,12 +41,20 @@ class SegmentationDataset(Dataset):
         
         img = cv2.imread(img_path, cv2.IMREAD_GRAYSCALE)
         mask = cv2.imread(mask_path, cv2.IMREAD_GRAYSCALE)
+        mask = mask / 255.0
         
-        if self.augmentation and self.transform:
-            # img = (self.transform(self.augmentation(img)))
-            # mask = (self.transform(self.augmentation(mask)))
-            augmented = self.transform(self.augmentation(image=img, mask=mask))
-            print('Augmentation and transform of idx: {} done', idx)
-        
-        return augmented, mask
+        if self.augmentation:
+            augmented = self.augmentation(image=img, mask=mask)
+            img = augmented['image']
+            mask = augmented['mask']
+
+        # TorchVision transforms expects input img as PIL image, while albumentation returns numpy.ndarray
+        img = Image.fromarray(img)
+        mask = Image.fromarray(mask)
+
+        if self.transform:
+            img = self.transform(img)
+            mask = self.transform(mask)
+
+        return img, mask
 

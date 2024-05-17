@@ -7,3 +7,4 @@
 **.cpython-310.pyc
 **/data/
 **.npy
+**.pt
