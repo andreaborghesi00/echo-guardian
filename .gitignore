@@ -4,6 +4,7 @@
 **/data/
 **/model.ipynb
 **/__pycache__/
+**/__pycache__
 **.cpython-310.pyc
 **/data/
 **.npy
