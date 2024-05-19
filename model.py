@@ -139,38 +139,37 @@ val_transform = A.Compose([
 
 
 # %%
-# train_classifier_ds = RadiomicsDataset(data_train, label_train, scaler=RobustScaler(), transform=train_transform, json_exclude_path='excludedImages.json', exclusion_class='classifier')
-# test_classifier_ds  = RadiomicsDataset(data_test, label_test, scaler=train_classifier_ds.scaler, transform=val_transform, json_exclude_path='excludedImages.json', exclusion_class='classifier')
-# val_classifier_ds   = RadiomicsDataset(data_val, label_val, scaler=train_classifier_ds.scaler, transform=val_transform, json_exclude_path='excludedImages.json', exclusion_class='classifier')
-
-# %%
 # Create and save or load the dataloaders
 batch_size = 64
-force_dataloader_creation = False
+force_dataset_creation = False
 data_dir = 'data'
 
-train_classifier_dl_path = os.path.join(data_dir, 'train_classifier_dl.pt')
-test_classifier_dl_path = os.path.join(data_dir, 'test_classifier_dl.pt')
-val_classifier_dl_path = os.path.join(data_dir, 'val_classifier_dl.pt')
+train_classifier_ds_path = os.path.join(data_dir, 'train_classifier_ds.pt')
+test_classifier_ds_path = os.path.join(data_dir, 'test_classifier_ds.pt')
+val_classifier_ds_path = os.path.join(data_dir, 'val_classifier_ds.pt')
 
-if (os.path.exists(train_classifier_dl_path) and os.path.exists(val_classifier_dl_path) and os.path.exists(test_classifier_dl_path)) and not force_dataloader_creation:
+if (os.path.exists(train_classifier_ds_path) and os.path.exists(val_classifier_ds_path) and os.path.exists(test_classifier_ds_path)) and not force_dataset_creation:
     # Load
-    train_classifier_dl = torch.load(train_classifier_dl_path)
-    test_classifier_dl = torch.load(test_classifier_dl_path)
-    val_classifier_dl = torch.load(val_classifier_dl_path)
-    print('Loaded train_classifier_dl, val_classifier_dl and test_classifier_dl from file')
-    print('Verify correct loading of data')
-    print(f'Train: {len(train_classifier_dl.dataset)} Val {len(val_classifier_dl.dataset)} Test {len(test_classifier_dl.dataset)}')
+    train_classifier_ds = torch.load(train_classifier_ds_path)
+    test_classifier_ds = torch.load(test_classifier_ds_path)
+    val_classifier_ds = torch.load(val_classifier_ds_path)
+    print('Loaded train_classifier_ds, val_classifier_ds and test_classifier_ds from file')
 
 else:
     # Create and save
-    train_classifier_dl = DataLoader(train_classifier_ds, batch_size=batch_size, shuffle=True, num_workers=8)
-    test_classifier_dl  = DataLoader(test_classifier_ds, batch_size=batch_size, num_workers=8)
-    val_classifier_dl   = DataLoader(val_classifier_ds, batch_size=batch_size, num_workers=8)
-    torch.save(train_classifier_dl, train_classifier_dl_path)
-    torch.save(test_classifier_dl, test_classifier_dl_path)
-    torch.save(val_classifier_dl, val_classifier_dl_path)
-    print('Saved train_classifier_dl, val_classifier_dl and test_classifier_dl to file')
+    
+    train_classifier_ds = RadiomicsDataset(data_train, label_train, scaler=RobustScaler(), transform=train_transform, json_exclude_path='excludedImages.json', exclusion_class='classifier')
+    test_classifier_ds  = RadiomicsDataset(data_test, label_test, scaler=train_classifier_ds.scaler, transform=val_transform, json_exclude_path='excludedImages.json', exclusion_class='classifier')
+    val_classifier_ds   = RadiomicsDataset(data_val, label_val, scaler=train_classifier_ds.scaler, transform=val_transform, json_exclude_path='excludedImages.json', exclusion_class='classifier')
+    torch.save(train_classifier_ds, train_classifier_ds_path)
+    torch.save(test_classifier_ds, test_classifier_ds_path)
+    torch.save(val_classifier_ds, val_classifier_ds_path)
+    print('Saved train_classifier_ds, val_classifier_ds and test_classifier_ds to file')
+
+
+train_classifier_dl = DataLoader(train_classifier_ds, batch_size=batch_size, shuffle=True, num_workers=8)
+test_classifier_dl  = DataLoader(test_classifier_ds, batch_size=batch_size, num_workers=8)
+val_classifier_dl   = DataLoader(val_classifier_ds, batch_size=batch_size, num_workers=8)
 
 # %% [markdown]
 # ### Visualize the features
@@ -267,63 +266,33 @@ from torchmetrics.classification import BinaryJaccardIndex
 from torchmetrics.classification import Dice
 from torchmetrics import Accuracy, ConfusionMatrix
 
-def validate(model, data_loader, task):
-    if task not in ['classification', 'segmentation']:
-        raise ValueError("task must be either 'classification' or 'segmentation'")
-    
+def validate(model, data_loader):
     model.eval()
 
-    if task == 'classification':
+    macro_acc_metric = Accuracy(task='binary', average='macro').to(device)
+    micro_acc_metric = Accuracy(task='binary', average='micro').to(device)
+    cm = ConfusionMatrix(task='binary', num_classes=2).to(device)
 
-        macro_acc_metric = Accuracy(task='binary', average='macro').to(device)
-        micro_acc_metric = Accuracy(task='binary', average='micro').to(device)
-        cm = ConfusionMatrix(task='binary', num_classes=2).to(device)
+    with torch.no_grad():
+        for data, target in data_loader:
+            data, target = data.to(device), target.to(device)
 
-        with torch.no_grad():
-            for data, target in data_loader:
-                data, target = data.to(device), target.to(device)
+            output = model(data)
+            output = torch.round(output)
+            
+            macro_acc_metric.update(output, target)
+            micro_acc_metric.update(output, target)
+            cm.update(output, target)
+            
+    tn, fp, fn, tp = cm.compute().reshape(-1)
+    specificity = tn / (tn + fp)
+    sensitivity = tp / (tp + fn)
+    print(f'\nT      Predicted')
+    print(f'r      P  |  N')
+    print(f'u   P: {tp} | {fn}')
+    print(f'e   N: {fp}  | {tn}')
 
-                output = model(data)
-                output = torch.round(output)
-                
-                macro_acc_metric.update(output, target)
-                micro_acc_metric.update(output, target)
-                cm.update(output, target)
-                
-        tn, fp, fn, tp = cm.compute().reshape(-1)
-        specificity = tn / (tn + fp)
-        sensitivity = tp / (tp + fn)
-        print(f'\nT      Predicted')
-        print(f'r      P  |  N')
-        print(f'u   P: {tp} | {fn}')
-        print(f'e   N: {fp}  | {tn}')
-
-        return macro_acc_metric.compute(), micro_acc_metric.compute(), specificity.item(), sensitivity.item()
-    
-    elif task == 'segmentation':
-        iou_metric = BinaryJaccardIndex().to(device)
-        dice_metric = Dice(num_classes=2).to(device)
-        
-        with torch.no_grad():
-            for data, target in data_loader:
-                data, target = data.to(device), target.to(device)
-
-                output = model(data)
-                # print(f'Output shape: {output.shape} target shape: {target.shape}')
-                # print('Output max:', torch.max(output).item(), 'Output min:', torch.min(output).item())
-                output = torch.sigmoid(output)
-                # print(f'Output shape: {output.shape} target shape: {target.shape}')
-                # print('Output max:', torch.max(output).item(), 'Output min:', torch.min(output).item())
-                output = torch.round(output)
-                # print(f'Output shape: {output.shape} target shape: {target.shape}')
-                output = output.int()
-                target = target.int()
-                # print('Output max:', torch.max(output).item(), 'Output min:', torch.min(output).item())
-                
-                iou_metric.update(output, target)
-                dice_metric.update(output, target)
-
-        return iou_metric.compute(), dice_metric.compute()
+    return macro_acc_metric.compute(), micro_acc_metric.compute(), specificity.item(), sensitivity.item()
 
 
 # %%
@@ -343,7 +312,7 @@ def tqdm_decorator(use_tqdm):
     return decorator
 
 @tqdm_decorator(use_tqdm=False)
-def train(model, train_loader, val_loader, optimizer, loss_criterion, epochs=10, pbar=None, task='classification'):
+def train(model, train_loader, val_loader, optimizer, loss_criterion, epochs=10, pbar=None):
     for epoch in range(epochs):
         for data, target in train_loader:
             data, target = data.to(device), target.to(device)
@@ -354,42 +323,28 @@ def train(model, train_loader, val_loader, optimizer, loss_criterion, epochs=10,
             loss.backward()
             optimizer.step()
 
-        if task == 'classification':
-            macro_acc, micro_acc, specificity, sensitivity = validate(model, val_loader, task=task)
-            if pbar is not None:
-                pbar.set_description(f'Epoch: {epoch + 1} - Macro Acc: {macro_acc:.3f}, Micro Acc: {micro_acc:.3f}, Specificity {specificity:.3f}, Sensitivity {sensitivity:.3f}')
-                pbar.update(1)
-            else:
-                print(f'Epoch: {epoch + 1} - Macro Acc: {macro_acc:.3f}, Micro Acc: {micro_acc:.3f}, Specificity {specificity:.3f}, Sensitivity {sensitivity:.3f}')
-        elif task == 'segmentation':
-            iou, dice = validate(model, val_loader, task=task)
-            if pbar is not None:
-                pbar.set_description(f'Epoch: {epoch + 1} - IoU: {iou:.3f}, Dice: {dice:.3f}')
-                pbar.update(1)
-            else:
-                print(f'Epoch: {epoch + 1} - IoU: {iou:.3f}, Dice: {dice:.3f}')
+        macro_acc, micro_acc, specificity, sensitivity = validate(model, val_loader)
+        if pbar is not None:
+            pbar.set_description(f'Epoch: {epoch + 1} - Macro Acc: {macro_acc:.3f}, Micro Acc: {micro_acc:.3f}, Specificity {specificity:.3f}, Sensitivity {sensitivity:.3f}')
+            pbar.update(1)
+        else:
+            print(f'Epoch: {epoch + 1} - Macro Acc: {macro_acc:.3f}, Micro Acc: {micro_acc:.3f}, Specificity {specificity:.3f}, Sensitivity {sensitivity:.3f}')
 
 
 # %%
 optimizer = optim.Adam(simple_net.parameters(), lr=1e-3, weight_decay=1e-5)
 loss_criterion = nn.BCELoss()
 
-train(simple_net, train_classifier_dl, val_classifier_dl, optimizer, loss_criterion, epochs=0, task='classification')
-
-# %%
-# macro_acc, micro_acc, specifity, sensitivity  = validate(simple_net, test_classifier_dl, task='classification')
-# print(f'Test Macro Acc: {macro_acc:.3f}, Test Micro Acc: {micro_acc:.3f}, Specificity {specifity:.3f}, Sensitivity {sensitivity:.3f}')
-
-# # Test with best model so far
-# Does not work as we've changed the network architecture
-# best_model_dict = torch.load('models/simple_net_0dot914_accuracy.pth')
+train(simple_net, train_classifier_dl, val_classifier_dl, optimizer, loss_criterion, epochs=0)
 
 # %% [markdown]
 # # Segmentation
 
 # %%
-# augmentations
-segmentation_augmentation = A.Compose([
+from albumentations.pytorch import ToTensorV2
+
+segmentation_train_augmentation = A.Compose([
+    A.Resize(256, 256),
     A.HorizontalFlip(p=0.5),
     A.VerticalFlip(p=0.5),
     A.Transpose(p=0.5),
@@ -398,78 +353,148 @@ segmentation_augmentation = A.Compose([
     A.RandomGamma(p=0.5),
     A.GaussNoise(var_limit=(5, 20), p=0.5),
     A.Blur(blur_limit=5, p=0.5),
-    A.Normalize(normalization='min_max')
+    A.Normalize(normalization='min_max'),
+    A.Resize(256, 256),
+    ToTensorV2(),
+    
 ])
 
 # pytorch transforms
-segmentation_transform = transforms.Compose([
-    transforms.ToTensor(),
-    transforms.Resize((256, 256)),
-    transforms.ColorJitter(brightness=0.2, contrast=0.2),
-    # transforms.Normalize(mean=[0.5], std=[0.5])
+segmentation_valtest_transform = A.Compose([
+    A.Resize(256, 256),
+    A.Normalize(normalization='min_max'),
+    ToTensorV2(),
 ])
-
-# %%
-train_segment_ds = SegmentationDataset(data_train, label_train, augmentation=segmentation_augmentation, 
-                                    transform=segmentation_transform, json_exclude_path='excludedImages.json', exclusion_class='cnn')
-val_segment_ds = SegmentationDataset(data_val, label_val, augmentation=segmentation_augmentation,
-                                    transform=segmentation_transform, json_exclude_path='excludedImages.json', exclusion_class='cnn')
-test_segment_ds = SegmentationDataset(data_test, label_test, augmentation=segmentation_augmentation,
-                                    transform=segmentation_transform, json_exclude_path='excludedImages.json', exclusion_class='cnn')
+    
 
 # %%
 # Create and save or load the dataloaders
 batch_size = 16
-force_dataloader_creation = True
+force_dataset_creation = True
 data_dir = 'data'
 
-train_segment_dl_path = os.path.join(data_dir, 'train_segment_dl.pt')
-test_segment_dl_path = os.path.join(data_dir, 'test_segment_dl.pt')
-val_segment_dl_path = os.path.join(data_dir, 'val_segment_dl.pt')
+train_segment_ds_path = os.path.join(data_dir, 'train_segment_ds.pt')
+test_segment_ds_path = os.path.join(data_dir, 'test_segment_ds.pt')
+val_segment_ds_path = os.path.join(data_dir, 'val_segment_ds.pt')
 
-if (os.path.exists(train_segment_dl_path) and os.path.exists(val_segment_dl_path) and os.path.exists(test_segment_dl_path)) and not force_dataloader_creation:
+if (os.path.exists(train_segment_ds_path) and os.path.exists(val_segment_ds_path) and os.path.exists(test_segment_ds_path)) and not force_dataset_creation:
     # Load
-    train_segment_dl = torch.load(train_segment_dl_path)
-    test_segment_dl = torch.load(test_segment_dl_path)
-    val_segment_dl = torch.load(val_segment_dl_path)
+    train_segment_dl = torch.load(train_segment_ds_path)
+    test_segment_dl = torch.load(test_segment_ds_path)
+    val_segment_dl = torch.load(val_segment_ds_path)
 
-    print('Loaded train_segment_dl, val_segment_dl and test_segment_dl from file')
-    print('Verify correct loading of data')
-    print(f'Train: {len(train_segment_dl.dataset)} Val: {len(val_segment_dl.dataset)} Test: {len(test_segment_dl.dataset)}')
+    print('Loaded train_segment_ds, val_segment_ds and test_segment_ds from file')
 
 else:
     # Create and save
-    train_segment_dl = DataLoader(train_segment_ds, batch_size=batch_size, shuffle=True, num_workers=8)
-    test_segment_dl = DataLoader(test_segment_ds, batch_size=batch_size, num_workers=8)
-    val_segment_dl = DataLoader(val_segment_ds, batch_size=batch_size, num_workers=8)
+    train_segment_ds = SegmentationDataset(data_train, label_train,
+                                    transform=segmentation_train_augmentation,
+                                    json_exclude_path='excludedImages.json',
+                                    exclusion_class='cnn')
+    
+    val_segment_ds = SegmentationDataset(data_val, label_val,
+                                    transform=segmentation_valtest_transform,
+                                    json_exclude_path='excludedImages.json',
+                                    exclusion_class='cnn')
+    
+    test_segment_ds = SegmentationDataset(data_test, label_test,
+                                    transform=segmentation_valtest_transform,
+                                    json_exclude_path='excludedImages.json',
+                                    exclusion_class='cnn')
+    torch.save(train_segment_ds, train_segment_ds_path)
+    torch.save(test_segment_ds, test_segment_ds_path)
+    torch.save(val_segment_ds, val_segment_ds_path)
+    print('Saved train_segment_ds, val_segment_ds and test_segment_ds to file')
+    
+train_segment_dl = DataLoader(train_segment_ds, batch_size=batch_size, shuffle=True, num_workers=8)
+test_segment_dl = DataLoader(test_segment_ds, batch_size=batch_size, num_workers=8)
+val_segment_dl = DataLoader(val_segment_ds, batch_size=batch_size, num_workers=8)
 
-    torch.save(train_segment_dl, train_segment_dl_path)
-    torch.save(test_segment_dl, test_segment_dl_path)
-    torch.save(val_segment_dl, val_segment_dl_path)
-
-    print('Saved train_segment_dl, val_segment_dl and test_segment_dl to file')
 
 # %%
-print(f'train: {len(train_segment_ds)} {len(train_segment_ds.img_mask_paths)}')
-print(f'val: {len(val_segment_ds)} {len(val_segment_ds.img_mask_paths)}')
-print(f'test: {len(test_segment_ds)} {len(test_segment_ds.img_mask_paths)}')
+def validate_segmentation(model, data_loader):
+    iou_metric = BinaryJaccardIndex().to(device)
+    dice_metric = Dice(num_classes=2).to(device)
+    
+    with torch.no_grad():
+        for data, target in data_loader:
+            data, target = data.to(device), target.to(device)
+
+            output = model(data)
+            output = torch.sigmoid(output)
+            output = torch.round(output)
+            output = output.int()
+            target = target.int()
+            
+            iou_metric.update(output, target)
+            dice_metric.update(output, target)
+
+    return iou_metric.compute(), dice_metric.compute()
+
+def train_segmentation(model, train_loader, val_loader, optimizer, loss_criterion, epochs=10, pbar=None):
+    
+    for epoch in range(epochs):
+            for data, target in train_loader:
+                data, target = data.to(device), target.to(device)
+                optimizer.zero_grad()
+                output = model(data)
+                output = torch.sigmoid(output)
+                loss = loss_criterion(output, target.float()) 
+                loss.backward()
+                optimizer.step()
+
+            iou, dice = validate_segmentation(model, val_loader)
+            if pbar is not None:
+                pbar.set_description(f'Epoch: {epoch + 1} - IoU: {iou:.3f}, Dice: {dice:.3f}')
+                pbar.update(1)
+            else:
+                print(f'Epoch: {epoch + 1} - IoU: {iou:.3f}, Dice: {dice:.3f}')
+    
+
 
 # %%
 import segmentation_models_pytorch as smp
 
 segmentation_model = smp.Unet(
-    encoder_name="resnet34",        # choose encoder, e.g. mobilenet_v2 or efficientnet-b7
+    encoder_name="resnet18",        # choose encoder, e.g. mobilenet_v2 or efficientnet-b7
     encoder_weights="imagenet",     # use `imagenet` pre-trained weights for encoder initialization
     in_channels=1,                  # model input channels (1 for gray-scale images, 3 for RGB, etc.)
     classes=1,                      # model output channels (number of classes in your dataset)
 )
-
 segmentation_model.to(device)
 
 optimizer = torch.optim.Adam(filter(lambda p: p.requires_grad, segmentation_model.parameters()), lr=0.001)
-loss_criterion = nn.CrossEntropyLoss()
+loss_criterion = nn.BCEWithLogitsLoss()
 
-train(segmentation_model, train_segment_dl, val_segment_dl, optimizer, loss_criterion, epochs=10, task='segmentation')
+train_segmentation(segmentation_model, train_segment_dl, val_segment_dl, optimizer, loss_criterion, epochs=100)
+
+# %%
+for image in range(10):
+    img, mask = test_segment_ds[image]
+    img = img.unsqueeze(0).to(device)
+    mask = mask.unsqueeze(0).to(device)
+    output = segmentation_model(img)
+    output = torch.sigmoid(output)
+    output = torch.round(output)
+    output = output.int()
+    mask = mask.int()
+
+    img = img.squeeze().cpu().numpy()
+    mask = mask.squeeze().cpu().numpy()
+    output = output.squeeze().cpu().numpy()
+
+    plt.figure(figsize=(10, 10))
+    plt.subplot(1, 3, 1)
+    plt.imshow(img, cmap='gray')
+    plt.title('Image')
+    plt.subplot(1, 3, 2)
+    plt.imshow(mask, cmap='gray')
+    plt.title('Ground truth')
+    plt.subplot(1, 3, 3)
+    plt.imshow(output, cmap='gray')
+    plt.title('Predicted')
+    plt.show()
+
 
 # %% [markdown]
 # # Random Forests and SVM:
