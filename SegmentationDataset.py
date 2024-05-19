@@ -8,8 +8,7 @@ from PIL import Image
 import numpy as np
 
 class SegmentationDataset(Dataset):
-    def __init__(self, img_mask_paths, labels, augmentation=None, transform = None, json_exclude_path=None, exclusion_class="cnn"):
-        self.augmentation = augmentation
+    def __init__(self, img_mask_paths, labels, transform = None, json_exclude_path=None, exclusion_class="cnn"):
         self.transform = transform
         self.img_mask_paths = img_mask_paths
 
@@ -43,18 +42,13 @@ class SegmentationDataset(Dataset):
         mask = cv2.imread(mask_path, cv2.IMREAD_GRAYSCALE)
         mask = mask / 255.0
         
-        if self.augmentation:
-            augmented = self.augmentation(image=img, mask=mask)
-            img = augmented['image']
-            mask = augmented['mask']
-
-        # TorchVision transforms expects input img as PIL image, while albumentation returns numpy.ndarray
-        img = Image.fromarray(img)
-        mask = Image.fromarray(mask)
-
         if self.transform:
-            img = self.transform(img)
-            mask = self.transform(mask)
+            augmented = self.transform(image=img, mask=mask)
+            img = augmented['image']
+            mask = augmented['mask'].long().unsqueeze(0)
+        
+        
+        
 
         return img, mask
 
