@@ -1,9 +1,13 @@
 import numpy as np
-from dash import Dash, dcc, html, Input, Output, no_update, callback
+from dash import Dash, dcc, html, Input, Output, State, no_update, callback
 import plotly.express as px
 import dash_daq as daq
 from skimage import data, draw
 from scipy import ndimage
+from PIL import Image
+import io
+from dash_extensions.enrich import DashProxy, LogTransform, DashLogger
+import base64
 
 def path_to_indices(path):
     """From SVG path to numpy array of coordinates, each row being a (row, col) point
@@ -24,6 +28,12 @@ def path_to_mask(path, shape):
     mask = ndimage.binary_fill_holes(mask)
     return mask
 
+def predict_roi_mask(img):
+    # Here we would use an api to predict the mask with our model
+    return np.zeros_like(img)
+
+# def np_to_svg()
+
 img = data.chelsea()
 mask = np.zeros(img.shape, dtype=bool)
 fig = px.imshow(img)
@@ -34,6 +44,28 @@ fig.update_layout(dragmode='drawclosedpath')
 app = Dash(__name__)
 app.layout = html.Div(
     [
+        html.Div([
+            dcc.Upload(
+                id='upload-data',
+                children=html.Div([
+                    'Drag and Drop or ',
+                    html.A('Select Files')
+                ]),
+                style={
+                    'width': '100%',
+                    'height': '60px',
+                    'lineHeight': '60px',
+                    'borderWidth': '1px',
+                    'borderStyle': 'dashed',
+                    'borderRadius': '5px',
+                    'textAlign': 'center',
+                    'margin': '10px'
+                },
+                # Allow multiple files to be uploaded
+                multiple=True
+            ),
+            html.Div(id='output-data-upload'),
+        ]),
         html.H3("Draw the Region Of Interest (ROI) on the image below:"),
         html.Div(
             [dcc.Graph(id="ultrasound-image", figure=fig),],
@@ -59,6 +91,42 @@ def on_new_annotation(relayout_data):
         return fig_mask
     else:
         return no_update
+
+
+@callback(
+    Output("ultrasound-image", "figure"),
+    Input("upload-data", "contents"),
+    State("upload-data", "filename"),
+    prevent_initial_call=True,
+)
+def on_upload_data(contents, filenames):
+    if contents is not None:
+        # Create an empty list to store the figures
+        figures = []
+
+        for content, filename in zip(contents, filenames):
+            content_type, content_string = content.split(',')
+            decoded_data = base64.b64decode(content_string)
+
+            image_data = io.BytesIO(decoded_data)
+
+            img = Image.open(image_data).convert("L")
+            numpy_image = np.array(img)
+
+            print(numpy_image.shape)
+            print(numpy_image)
+
+            fig = px.imshow(numpy_image, title=filename)
+            fig.update_layout(dragmode='drawclosedpath')
+            # Append the figure to the list
+            figures.append(fig)
+
+        # If no figures were created, return an empty figure
+        if not figures:
+            return px.imshow(np.zeros((1, 1)))
+
+        # Return the list of figures
+        return figures[0]
 
 if __name__ == "__main__":
     app.run(debug=True)

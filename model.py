@@ -81,6 +81,7 @@ from torchsummary import summary
 from tqdm import tqdm
 from sklearn.preprocessing import StandardScaler, MinMaxScaler, RobustScaler
 from torchvision import transforms
+import cv2
 
 # %% [markdown]
 # # Data loading
@@ -112,7 +113,7 @@ print(df.head(25))
 img_mask_paths = [(df['image'].iloc[idx], df['mask'].iloc[idx]) for idx in range(len(df))]
 labels = df['label'].values
 print(np.shape(labels))
-print(labels)
+# print(labels)
 
 # %%
 data_train, data_valtest, label_train, label_valtest = train_test_split(img_mask_paths, labels, test_size=0.2, random_state=69420, stratify=labels)
@@ -257,9 +258,9 @@ class RadiomicsNet(nn.Module):
 
 
 # %%
-simple_net = SimpleNet().to(device)
-radiomics_net = RadiomicsNet().to(device)
-print(radiomics_net)
+# simple_net = SimpleNet().to(device)
+# radiomics_net = RadiomicsNet().to(device)
+# print(radiomics_net)
 
 # %%
 from torchmetrics.classification import BinaryJaccardIndex
@@ -332,10 +333,10 @@ def train(model, train_loader, val_loader, optimizer, loss_criterion, epochs=10,
 
 
 # %%
-optimizer = optim.Adam(simple_net.parameters(), lr=1e-3, weight_decay=1e-5)
-loss_criterion = nn.BCELoss()
+# optimizer = optim.Adam(simple_net.parameters(), lr=1e-3, weight_decay=1e-5)
+# loss_criterion = nn.BCELoss()
 
-train(simple_net, train_classifier_dl, val_classifier_dl, optimizer, loss_criterion, epochs=0)
+# train(simple_net, train_classifier_dl, val_classifier_dl, optimizer, loss_criterion, epochs=0)
 
 # %% [markdown]
 # # Segmentation
@@ -406,7 +407,7 @@ segmentation_valtest_transform = A.Compose([
     A.Normalize(normalization='min_max'),
     ToTensorV2(),
 ])
-    
+
 
 # %%
 # Create and save or load the dataloaders
@@ -502,13 +503,14 @@ import segmentation_models_pytorch as smp
 
 segmentation_model = smp.Unet(
     encoder_name="resnet34",        # choose encoder, e.g. mobilenet_v2 or efficientnet-b7
+    encoder_name="resnet34",        # choose encoder, e.g. mobilenet_v2 or efficientnet-b7
     encoder_weights="imagenet",     # use `imagenet` pre-trained weights for encoder initialization
     in_channels=1,                  # model input channels (1 for gray-scale images, 3 for RGB, etc.)
     classes=1,                      # model output channels (number of classes in your dataset)
 )
 segmentation_model.to(device)
 
-optimizer = torch.optim.Adam(filter(lambda p: p.requires_grad, segmentation_model.parameters()), lr=0.0001)
+optimizer = torch.optim.Adam(filter(lambda p: p.requires_grad, segmentation_model.parameters()), lr=0.001)
 loss_criterion = nn.BCEWithLogitsLoss()
 epochs = 100
 pbar = tqdm(total=epochs, desc='Training', leave=True, unit='epoch')
@@ -522,6 +524,8 @@ test_segment_ds[0]
 # %%
 for image in range(20):
     img, mask = test_segment_ds[image]
+    img_path = test_segment_ds.img_mask_paths[image][0]
+    label = 'benign' if 'benign' in img_path else 'malignant'
     img = img.unsqueeze(0).to(device)
     img_path = test_segment_ds.img_mask_paths[image][0]
     typ = 'malignant' if 'malignant' in img_path else 'benign'
