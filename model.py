@@ -81,6 +81,7 @@ from torchsummary import summary
 from tqdm import tqdm
 from sklearn.preprocessing import StandardScaler, MinMaxScaler, RobustScaler
 from torchvision import transforms
+import cv2
 
 # %% [markdown]
 # # Data loading
@@ -112,7 +113,7 @@ print(df.head())
 img_mask_paths = [(df['image'].iloc[idx], df['mask'].iloc[idx]) for idx in range(len(df))]
 labels = df['label'].values
 print(np.shape(labels))
-print(labels)
+# print(labels)
 
 # %%
 data_train, data_valtest, label_train, label_valtest = train_test_split(img_mask_paths, labels, test_size=0.2, random_state=69420, stratify=labels)
@@ -257,9 +258,9 @@ class RadiomicsNet(nn.Module):
 
 
 # %%
-simple_net = SimpleNet().to(device)
-radiomics_net = RadiomicsNet().to(device)
-print(radiomics_net)
+# simple_net = SimpleNet().to(device)
+# radiomics_net = RadiomicsNet().to(device)
+# print(radiomics_net)
 
 # %%
 from torchmetrics.classification import BinaryJaccardIndex
@@ -332,13 +333,59 @@ def train(model, train_loader, val_loader, optimizer, loss_criterion, epochs=10,
 
 
 # %%
-optimizer = optim.Adam(simple_net.parameters(), lr=1e-3, weight_decay=1e-5)
-loss_criterion = nn.BCELoss()
+# optimizer = optim.Adam(simple_net.parameters(), lr=1e-3, weight_decay=1e-5)
+# loss_criterion = nn.BCELoss()
 
-train(simple_net, train_classifier_dl, val_classifier_dl, optimizer, loss_criterion, epochs=0)
+# train(simple_net, train_classifier_dl, val_classifier_dl, optimizer, loss_criterion, epochs=0)
 
 # %% [markdown]
 # # Segmentation
+
+# %%
+import cv2
+
+# Create new dataset folder with unique masks for each image
+new_path = 'dataset_unique_masks/'
+
+for folder in os.listdir(new_path):
+    for file in os.listdir(os.path.join(new_path, folder)):
+        if 'mask_' in file:
+            original_mask = file.split('_mask_')[0] + '_mask.png'
+            print(f'original_mask = {original_mask}')
+            print(f'second mask = {file}')
+            orig_mask = cv2.imread(os.path.join(new_path, folder, original_mask), cv2.IMREAD_GRAYSCALE)
+            second_mask = cv2.imread(os.path.join(new_path, folder, file), cv2.IMREAD_GRAYSCALE)
+            new_mask = cv2.bitwise_or(orig_mask, second_mask)
+            cv2.imwrite(os.path.join(new_path, folder, original_mask), new_mask)
+            # !rm "{os.path.join(new_path, folder, file)}"
+
+path = 'dataset_unique_masks/'
+
+df_segment = pd.DataFrame(columns=['image', 'mask', 'label'])
+
+for folder in os.listdir(path):
+    for file in os.listdir(os.path.join(path, folder)):
+        # Only loop through the masks so that we can handle duplicate masks easily
+        if 'mask' in file:
+            img_file = file.split('_mask')[0] + '.png'
+            df_segment = pd.concat([df_segment, pd.DataFrame({
+                'image': [os.path.join(path, folder, img_file)],
+                'mask': [os.path.join(path, folder, file)],
+                'label': [1 if 'malignant' in file else 0]
+            })])
+
+df_segment.index = range(1, len(df_segment) + 1)
+print(df_segment.shape)
+print(df_segment.head())
+
+# %%
+img_mask_paths_segment = [(df_segment['image'].iloc[idx], df_segment['mask'].iloc[idx]) for idx in range(len(df_segment))]
+labels = df_segment['label'].values
+print(np.shape(labels))
+# print(labels)
+
+data_train, data_valtest, label_train, label_valtest = train_test_split(img_mask_paths_segment, labels, test_size=0.2, random_state=69420, stratify=labels)
+data_val, data_test, label_val, label_test = train_test_split(data_valtest, label_valtest, test_size=0.5, random_state=69420, stratify=label_valtest)
 
 # %%
 from albumentations.pytorch import ToTensorV2
@@ -354,7 +401,6 @@ segmentation_train_augmentation = A.Compose([
     A.GaussNoise(var_limit=(5, 20), p=0.5),
     A.Blur(blur_limit=5, p=0.5),
     A.Normalize(normalization='min_max'),
-    A.Resize(256, 256),
     ToTensorV2(),
     
 ])
@@ -365,7 +411,7 @@ segmentation_valtest_transform = A.Compose([
     A.Normalize(normalization='min_max'),
     ToTensorV2(),
 ])
-    
+
 
 # %%
 # Create and save or load the dataloaders
@@ -414,7 +460,7 @@ val_segment_dl = DataLoader(val_segment_ds, batch_size=batch_size, num_workers=8
 # %%
 def validate_segmentation(model, data_loader):
     iou_metric = BinaryJaccardIndex().to(device)
-    dice_metric = Dice(num_classes=2).to(device)
+    dice_metric = Dice(num_classes=1, multiclass=False).to(device)
     
     with torch.no_grad():
         for data, target in data_loader:
@@ -434,7 +480,7 @@ def validate_segmentation(model, data_loader):
 def train_segmentation(model, train_loader, val_loader, optimizer, loss_criterion, epochs=10, pbar=None):
     
     for epoch in range(epochs):
-            for data, target in train_loader:
+            for data, target in tqdm(train_loader):
                 data, target = data.to(device), target.to(device)
                 optimizer.zero_grad()
                 output = model(data)
@@ -456,21 +502,23 @@ def train_segmentation(model, train_loader, val_loader, optimizer, loss_criterio
 import segmentation_models_pytorch as smp
 
 segmentation_model = smp.Unet(
-    encoder_name="resnet18",        # choose encoder, e.g. mobilenet_v2 or efficientnet-b7
+    encoder_name="resnet34",        # choose encoder, e.g. mobilenet_v2 or efficientnet-b7
     encoder_weights="imagenet",     # use `imagenet` pre-trained weights for encoder initialization
     in_channels=1,                  # model input channels (1 for gray-scale images, 3 for RGB, etc.)
     classes=1,                      # model output channels (number of classes in your dataset)
 )
 segmentation_model.to(device)
 
-optimizer = torch.optim.Adam(filter(lambda p: p.requires_grad, segmentation_model.parameters()), lr=0.001)
+optimizer = torch.optim.Adam(filter(lambda p: p.requires_grad, segmentation_model.parameters()), lr=1e-4, weight_decay=1e-5)
 loss_criterion = nn.BCEWithLogitsLoss()
 
 train_segmentation(segmentation_model, train_segment_dl, val_segment_dl, optimizer, loss_criterion, epochs=100)
 
 # %%
-for image in range(10):
+for image in range(50):
     img, mask = test_segment_ds[image]
+    img_path = test_segment_ds.img_mask_paths[image][0]
+    label = 'benign' if 'benign' in img_path else 'malignant'
     img = img.unsqueeze(0).to(device)
     mask = mask.unsqueeze(0).to(device)
     output = segmentation_model(img)
@@ -486,7 +534,7 @@ for image in range(10):
     plt.figure(figsize=(10, 10))
     plt.subplot(1, 3, 1)
     plt.imshow(img, cmap='gray')
-    plt.title('Image')
+    plt.title('Image: ' + label)
     plt.subplot(1, 3, 2)
     plt.imshow(mask, cmap='gray')
     plt.title('Ground truth')
