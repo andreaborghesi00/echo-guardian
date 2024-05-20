@@ -568,9 +568,8 @@ from utils import radiomics_features
 
 # THIS WHOLE FUNCTION STINKS ASS AND I KNOW IT, I HATE THIS
 for image in range(20):
-    img, mask = test_segment_ds[image]
-    img_path = test_segment_ds.img_mask_paths[image][0]
-    typ = 'malignant' if 'malignant' in img_path else 'benign'
+    img, _ = test_segment_ds[image]
+    mask = torch.int(torch.round(torch.sigmoid(segmentation_model(img))))
     
     sitk_image = sitk.GetImageFromArray(img)
     sitk_mask = sitk.GetImageFromArray(mask)
@@ -580,8 +579,6 @@ for image in range(20):
     simple_net_input = torch.tensor(features).float().to(device)
     output = simple_net(simple_net_input[:101]) # 
     output = torch.round(output)
-
-# %%
 
 # %% [markdown]
 # # Random Forests and SVM:
