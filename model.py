@@ -103,7 +103,7 @@ for folder in os.listdir(path):
 
 df.index = range(1, len(df) + 1)
 print(df.shape)
-print(df.head())
+print(df.head(25))
 
 # %% [markdown]
 # ## Splitting, datasets, data loaders
@@ -341,6 +341,48 @@ train(simple_net, train_classifier_dl, val_classifier_dl, optimizer, loss_criter
 # # Segmentation
 
 # %%
+import cv2
+
+path = 'dataset_unique_masks/'
+
+for folder in os.listdir(path):
+    for file in os.listdir(os.path.join(path, folder)):
+        if 'mask_' in file:
+            original_mask = file.split('_mask_')[0] + '_mask.png'
+            print(f'original_mask = {original_mask}')
+            print(f'second mask = {file}')
+            orig_mask = cv2.imread(os.path.join(path, folder, original_mask), cv2.IMREAD_GRAYSCALE)
+            second_mask = cv2.imread(os.path.join(path, folder, file), cv2.IMREAD_GRAYSCALE)
+            new_mask = cv2.bitwise_or(orig_mask, second_mask)
+            cv2.imwrite(os.path.join(path, folder, original_mask), new_mask)
+            # !rm "{os.path.join(path, folder, file)}"
+
+df_segment = pd.DataFrame(columns=['image', 'mask', 'label'])
+
+for folder in os.listdir(path):
+    for file in os.listdir(os.path.join(path, folder)):
+        # Only loop through the masks so that we can handle duplicate masks easily
+        if 'mask' in file:
+            img_file = file.split('_mask')[0] + '.png'
+            df_segment = pd.concat([df_segment, pd.DataFrame({
+                'image': [os.path.join(path, folder, img_file)],
+                'mask': [os.path.join(path, folder, file)],
+                'label': [1 if 'malignant' in file else 0]
+            })])
+
+df_segment.index = range(1, len(df_segment) + 1)
+
+# %%
+img_mask_paths_segment = [(df_segment['image'].iloc[idx], df_segment['mask'].iloc[idx]) for idx in range(len(df_segment))]
+labels_segment = df_segment['label'].values
+print(np.shape(labels_segment))
+print(labels_segment)
+
+
+data_train, data_valtest, label_train, label_valtest = train_test_split(img_mask_paths_segment, labels_segment, test_size=0.2, random_state=69420, stratify=labels_segment)
+data_val, data_test, label_val, label_test = train_test_split(data_valtest, label_valtest, test_size=0.5, random_state=69420, stratify=label_valtest)
+
+# %%
 from albumentations.pytorch import ToTensorV2
 
 segmentation_train_augmentation = A.Compose([
@@ -348,13 +390,12 @@ segmentation_train_augmentation = A.Compose([
     A.HorizontalFlip(p=0.5),
     A.VerticalFlip(p=0.5),
     A.Transpose(p=0.5),
-    A.ShiftScaleRotate(shift_limit=0.1, scale_limit=0.1, rotate_limit=5, p=0.5),
+    A.ShiftScaleRotate(shift_limit=0.1, scale_limit=0.1, rotate_limit=25, p=0.5),
     A.RandomBrightnessContrast(p=0.5),
     A.RandomGamma(p=0.5),
     A.GaussNoise(var_limit=(5, 20), p=0.5),
     A.Blur(blur_limit=5, p=0.5),
     A.Normalize(normalization='min_max'),
-    A.Resize(256, 256),
     ToTensorV2(),
     
 ])
@@ -414,7 +455,7 @@ val_segment_dl = DataLoader(val_segment_ds, batch_size=batch_size, num_workers=8
 # %%
 def validate_segmentation(model, data_loader):
     iou_metric = BinaryJaccardIndex().to(device)
-    dice_metric = Dice(num_classes=2).to(device)
+    dice_metric = Dice(num_classes=1, multiclass=False).to(device)
     
     with torch.no_grad():
         for data, target in data_loader:
@@ -434,44 +475,56 @@ def validate_segmentation(model, data_loader):
 def train_segmentation(model, train_loader, val_loader, optimizer, loss_criterion, epochs=10, pbar=None):
     
     for epoch in range(epochs):
-            for data, target in train_loader:
-                data, target = data.to(device), target.to(device)
-                optimizer.zero_grad()
-                output = model(data)
-                output = torch.sigmoid(output)
-                loss = loss_criterion(output, target.float()) 
-                loss.backward()
-                optimizer.step()
+        mean_loss = 0
+        for data, target in train_loader:
+            data, target = data.to(device), target.to(device)
+            optimizer.zero_grad()
+            output = model(data)
+            output = torch.sigmoid(output)
+            loss = loss_criterion(output, target.float()) 
+            loss.backward()
+            optimizer.step()
+            mean_loss += loss.item()
 
-            iou, dice = validate_segmentation(model, val_loader)
-            if pbar is not None:
-                pbar.set_description(f'Epoch: {epoch + 1} - IoU: {iou:.3f}, Dice: {dice:.3f}')
-                pbar.update(1)
-            else:
-                print(f'Epoch: {epoch + 1} - IoU: {iou:.3f}, Dice: {dice:.3f}')
+        iou, dice = validate_segmentation(model, val_loader)
+        if pbar is not None:
+            pbar.set_description(f'Epoch: {epoch + 1} - Val IoU: {iou:.3f}, Val Dice: {dice:.3f}, train Loss: {mean_loss / len(train_loader)}')
+            pbar.update(1)
+        else:
+            print(f'Epoch: {epoch + 1} - IoU: {iou:.3f}, Dice: {dice:.3f}, Train Loss: {mean_loss / len(train_loader)}')
+    # save the model
+    torch.save(model, 'segmentation.pth')
     
-
+    
 
 # %%
 import segmentation_models_pytorch as smp
 
 segmentation_model = smp.Unet(
-    encoder_name="resnet18",        # choose encoder, e.g. mobilenet_v2 or efficientnet-b7
+    encoder_name="resnet34",        # choose encoder, e.g. mobilenet_v2 or efficientnet-b7
     encoder_weights="imagenet",     # use `imagenet` pre-trained weights for encoder initialization
     in_channels=1,                  # model input channels (1 for gray-scale images, 3 for RGB, etc.)
     classes=1,                      # model output channels (number of classes in your dataset)
 )
 segmentation_model.to(device)
 
-optimizer = torch.optim.Adam(filter(lambda p: p.requires_grad, segmentation_model.parameters()), lr=0.001)
+optimizer = torch.optim.Adam(filter(lambda p: p.requires_grad, segmentation_model.parameters()), lr=0.0001)
 loss_criterion = nn.BCEWithLogitsLoss()
+epochs = 100
+pbar = tqdm(total=epochs, desc='Training', leave=True, unit='epoch')
+
 
 train_segmentation(segmentation_model, train_segment_dl, val_segment_dl, optimizer, loss_criterion, epochs=100)
 
 # %%
-for image in range(10):
+test_segment_ds[0]
+
+# %%
+for image in range(20):
     img, mask = test_segment_ds[image]
     img = img.unsqueeze(0).to(device)
+    img_path = test_segment_ds.img_mask_paths[image][0]
+    typ = 'malignant' if 'malignant' in img_path else 'benign'
     mask = mask.unsqueeze(0).to(device)
     output = segmentation_model(img)
     output = torch.sigmoid(output)
@@ -486,7 +539,7 @@ for image in range(10):
     plt.figure(figsize=(10, 10))
     plt.subplot(1, 3, 1)
     plt.imshow(img, cmap='gray')
-    plt.title('Image')
+    plt.title(f'Image {typ}')
     plt.subplot(1, 3, 2)
     plt.imshow(mask, cmap='gray')
     plt.title('Ground truth')
@@ -495,6 +548,10 @@ for image in range(10):
     plt.title('Predicted')
     plt.show()
 
+
+# %%
+for i in test_segment_ds:
+    features = radiomics_features(i[0])
 
 # %% [markdown]
 # # Random Forests and SVM:

@@ -4,6 +4,7 @@ from sklearn.ensemble import RandomForestClassifier
 from sklearn.model_selection import GridSearchCV
 from sklearn import svm
 import threading
+import radiomics
 from sklearn.metrics import classification_report
 import numpy as np
 from sklearn.metrics import accuracy_score
@@ -170,3 +171,12 @@ def srgb2gray(image):
     #nonlinear gamma correction
     I = I*sitk.Cast(I<=0.0031308,sitk.sitkFloat32)*12.92 + I**(1/2.4)*sitk.Cast(I>0.0031308,sitk.sitkFloat32)*1.055-0.055
     return sitk.Cast(sitk.RescaleIntensity(I), sitk.sitkUInt8)
+
+
+def radiomics_features(image, mask):
+    extractor = radiomics.featureextractor.RadiomicsFeatureExtractor()
+    #image = sitk.ReadImage(image, sitk.sitkUInt8)
+    #mask = sitk.ReadImage(mask, sitk.sitkUInt8)
+    features = extractor.execute(image, mask, voxelBased=False, label=255)
+    features_values = [float(features[key]) for key in features if key.startswith('original_')]
+    return features_values

@@ -9,3 +9,4 @@
 **/data/
 **.npy
 **.pt
+**/dataset_unique_masks
