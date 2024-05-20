@@ -175,8 +175,8 @@ def srgb2gray(image):
 
 def radiomics_features(image, mask):
     extractor = radiomics.featureextractor.RadiomicsFeatureExtractor()
-    #image = sitk.ReadImage(image, sitk.sitkUInt8)
-    #mask = sitk.ReadImage(mask, sitk.sitkUInt8)
-    features = extractor.execute(image, mask, voxelBased=False, label=255)
+    sitk_image = sitk.GetImageFromArray(image)
+    sitk_mask = sitk.GetImageFromArray(mask)
+    features = extractor.execute(sitk_image, sitk_mask, voxelBased=False, label=1)
     features_values = [float(features[key]) for key in features if key.startswith('original_')]
     return features_values

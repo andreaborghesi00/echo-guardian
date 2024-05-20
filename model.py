@@ -333,10 +333,17 @@ def train(model, train_loader, val_loader, optimizer, loss_criterion, epochs=10,
 
 
 # %%
-# optimizer = optim.Adam(simple_net.parameters(), lr=1e-3, weight_decay=1e-5)
-# loss_criterion = nn.BCELoss()
 
-# train(simple_net, train_classifier_dl, val_classifier_dl, optimizer, loss_criterion, epochs=0)
+simple_net = SimpleNet().to(device)
+optimizer = optim.Adam(simple_net.parameters(), lr=1e-3, weight_decay=1e-5)
+loss_criterion = nn.BCELoss()
+to_train = False
+
+if to_train:
+    train(simple_net, train_classifier_dl, val_classifier_dl, optimizer, loss_criterion, epochs=10)
+    torch.save(simple_net.state_dict(), 'simple_net.pth')
+else:
+    simple_net.load_state_dict(torch.load('simple_net.pth'))
 
 # %% [markdown]
 # # Segmentation
@@ -503,7 +510,6 @@ import segmentation_models_pytorch as smp
 
 segmentation_model = smp.Unet(
     encoder_name="resnet34",        # choose encoder, e.g. mobilenet_v2 or efficientnet-b7
-    encoder_name="resnet34",        # choose encoder, e.g. mobilenet_v2 or efficientnet-b7
     encoder_weights="imagenet",     # use `imagenet` pre-trained weights for encoder initialization
     in_channels=1,                  # model input channels (1 for gray-scale images, 3 for RGB, etc.)
     classes=1,                      # model output channels (number of classes in your dataset)
@@ -514,9 +520,13 @@ optimizer = torch.optim.Adam(filter(lambda p: p.requires_grad, segmentation_mode
 loss_criterion = nn.BCEWithLogitsLoss()
 epochs = 100
 pbar = tqdm(total=epochs, desc='Training', leave=True, unit='epoch')
+to_train = False
 
-
-train_segmentation(segmentation_model, train_segment_dl, val_segment_dl, optimizer, loss_criterion, epochs=100)
+if to_train == True:
+    train_segmentation(segmentation_model, train_segment_dl, val_segment_dl, optimizer, loss_criterion, epochs=10)
+else:
+    segmentation_model = torch.load('segmentation.pth')
+    
 
 # %%
 test_segment_ds[0]
@@ -554,8 +564,24 @@ for image in range(20):
 
 
 # %%
-for i in test_segment_ds:
-    features = radiomics_features(i[0])
+from utils import radiomics_features
+
+# THIS WHOLE FUNCTION STINKS ASS AND I KNOW IT, I HATE THIS
+for image in range(20):
+    img, mask = test_segment_ds[image]
+    img_path = test_segment_ds.img_mask_paths[image][0]
+    typ = 'malignant' if 'malignant' in img_path else 'benign'
+    
+    sitk_image = sitk.GetImageFromArray(img)
+    sitk_mask = sitk.GetImageFromArray(mask)
+
+    features = radiomics_features(sitk.GetArrayFromImage(sitk_image), sitk.GetArrayFromImage(sitk_mask))
+    
+    simple_net_input = torch.tensor(features).float().to(device)
+    output = simple_net(simple_net_input[:101]) # 
+    output = torch.round(output)
+
+# %%
 
 # %% [markdown]
 # # Random Forests and SVM:
