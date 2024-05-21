@@ -68,8 +68,5 @@ class SegmentationDataset(Dataset):
             img = augmented['image']
             mask = augmented['mask'].long().unsqueeze(0)
         
-        
-        
-
         return img, mask
 
