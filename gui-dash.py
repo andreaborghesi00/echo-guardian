@@ -16,7 +16,8 @@ from NNClassification import NNClassifier
 from UnetSegmenter import UnetSegmenter
 
 def path_to_indices(path):
-    """From SVG path to numpy array of coordinates, each row being a (row, col) point
+    """
+    From SVG path to numpy array of coordinates, each row being a (row, col) point
     """
     indices_str = [
         el.replace("M", "").replace("Z", "").split(",") for el in path.split("L")
@@ -24,13 +25,18 @@ def path_to_indices(path):
     return np.rint(np.array(indices_str, dtype=float)).astype(int)
 
 def path_to_mask(path, shape):
-    """From SVG path to a boolean array where all pixels enclosed by the path
+    """
+    From SVG path to a boolean array where all pixels enclosed by the path
     are True, and the other pixels are False.
     """
     cols, rows = path_to_indices(path).T
     rr, cc = draw.polygon(rows, cols)
+
+    rr_clipped = np.clip(rr - 1, 0, shape[0] - 1)
+    cc_clipped = np.clip(cc - 1, 0, shape[1] - 1)
+
     mask = np.zeros(shape, dtype=bool)
-    mask[rr-1, cc-1] = True
+    mask[rr_clipped, cc_clipped] = True
     mask_numpy = np.array(mask)
     mask = ndimage.binary_fill_holes(mask)
     return mask, mask_numpy
@@ -81,45 +87,6 @@ fig.update_layout(dragmode='drawclosedpath')
 
 
 app = Dash(__name__)
-# app.layout = html.Div(
-#     [
-#         html.Div([
-#             dcc.Upload(
-#                 id='upload-data',
-#                 children=html.Div([
-#                     'Drag and Drop or ',
-#                     html.A('Select Files')
-#                 ]),
-#                 style={
-#                     'width': '100%',
-#                     'height': '60px',
-#                     'lineHeight': '60px',
-#                     'borderWidth': '1px',
-#                     'borderStyle': 'dashed',
-#                     'borderRadius': '5px',
-#                     'textAlign': 'center',
-#                     'margin': '10px'
-#                 },
-#                 # Allow multiple files to be uploaded
-#                 multiple=True
-#             ),
-#             html.Div(id='output-data-upload'),
-#         ]),
-#         html.H3("Draw the Region Of Interest (ROI) on the image below:"),
-#         html.Div(
-#             [dcc.Graph(id="ultrasound-image", figure=fig),],
-#             style={"width": "60%", "display": "inline-block", "padding": "0 0"},
-#         ),
-#         html.Div(
-#             [dcc.Graph(id="mask-image", figure=fig_mask),],
-#             style={"width": "40%", "display": "inline-block", "padding": "0 0"},
-#         ),
-#         html.Button('Predict', id='classify-button', n_clicks=0),
-#         html.Div(id='output-predict'),
-#         dcc.Store(id='image-store'),
-#         dcc.Store(id='mask-store')
-#     ]
-# )
 
 app.layout = html.Div([
     html.H1("Medical Image Analysis", style={'textAlign': 'center'}),
@@ -154,29 +121,51 @@ app.layout = html.Div([
         ], style={'width': '40%', 'display': 'inline-block', 'padding': '0 20px'}),
     ], style={'marginBottom': '30px', 'textAlign': 'center'}),
     html.Div([
-        html.Button('Predict', id='classify-button', n_clicks=0, style={'fontSize': '16px', 'padding': '10px 20px', 'backgroundColor': '#4CAF50', 'color': 'white', 'border': 'none', 'borderRadius': '4px', 'cursor': 'pointer'}),
-        html.Div(id='output-predict', style={'marginTop': '20px', 'fontFamily': 'monospace'}),
-    ], style={'textAlign': 'center'}),
+        html.Button('Predict', id='classify-button', n_clicks=0, style={
+            'fontSize': '16px',
+            'padding': '10px 20px',
+            'backgroundColor': '#4CAF50',
+            'color': 'white',
+            'border': 'none',
+            'borderRadius': '4px',
+            'cursor': 'pointer',
+            'transition': 'background-color 0.3s ease'
+        }),
+        html.Div(id='output-predict', style={
+            'marginTop': '20px',
+            'fontFamily': 'monospace',
+            'backgroundColor': '#f0f0f0',
+            'padding': '10px',
+            'borderRadius': '4px'
+        }),
+    ], style={'textAlign': 'center', 'marginTop': '30px'}),
     dcc.Store(id='image-store'),
     dcc.Store(id='mask-store')
-], style={'padding': '30px', 'backgroundColor': '#f5f5f5'})
+], style={
+    'padding': '30px',
+    'backgroundColor': '#f5f5f5',
+    'backgroundImage': 'url("background.jpg")',
+    'backgroundSize': 'cover',
+    'backgroundPosition': 'center'
+})
 
 @callback(
     Output("mask-image", "figure"),
     Output("mask-store", "data"),
     Input("ultrasound-image", "relayoutData"),
+    State("ultrasound-image", "figure"),
     prevent_initial_call=True,
 )
-def on_new_annotation(relayout_data):
+def on_new_annotation(relayout_data, figure):
     if "shapes" in relayout_data:
+        # Clear the previous shapes
+        figure["data"][0]["path"] = "" # clear previous drawing
         last_shape = relayout_data["shapes"][-1]
-        mask, mask_numpy= path_to_mask(last_shape["path"], img.shape)
+        mask, mask_numpy = path_to_mask(last_shape["path"], img.shape)
         fig_mask = px.imshow(mask)
         return fig_mask, mask_numpy
     else:
         return no_update, no_update
-
-
 @callback(
     Output("ultrasound-image", "figure"),
     Output("image-store", "data"),
@@ -222,9 +211,16 @@ def on_upload_data(contents, filenames):
     prevent_initial_call=True,
 )
 def on_predict(n_clicks, image, mask):
-    if n_clicks is not None:
-        class_pred = predict_class(image, mask)
-        return f"Predicted class: {class_pred}"
+    if n_clicks is None:
+        return "Please upload an image and draw a ROI."
+    elif image is None or mask is None:
+        return "Please upload an image and draw an ROI before predicting."
+    else:
+        try:
+            class_pred = predict_class(image, mask)
+            return f"Predicted class: {class_pred}"
+        except Exception as e:
+            return f"Error: {str(e)}"
 
 if __name__ == "__main__":
     app.run(debug=True)
