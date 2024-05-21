@@ -532,7 +532,7 @@ else:
 test_segment_ds[0]
 
 # %%
-for image in range(20):
+for image in range(5):
     img, mask = test_segment_ds[image]
     img_path = test_segment_ds.img_mask_paths[image][0]
     label = 'benign' if 'benign' in img_path else 'malignant'
@@ -568,17 +568,22 @@ from utils import radiomics_features
 
 # THIS WHOLE FUNCTION STINKS ASS AND I KNOW IT, I HATE THIS
 for image in range(20):
+    img_path = test_segment_ds.img_mask_paths[image][0]
+    typ = 'malignant' if 'malignant' in img_path else 'benign'
     img, _ = test_segment_ds[image]
-    mask = torch.int(torch.round(torch.sigmoid(segmentation_model(img))))
+    img = img.to(device)
+    img = img.unsqueeze(0)  # Add a batch dimension
+    mask = torch.round(torch.sigmoid(segmentation_model(img))).int()  # Convert to integer tensor
     
-    sitk_image = sitk.GetImageFromArray(img)
-    sitk_mask = sitk.GetImageFromArray(mask)
-
-    features = radiomics_features(sitk.GetArrayFromImage(sitk_image), sitk.GetArrayFromImage(sitk_mask))
     
+    features = radiomics_features(img.squeeze(0), mask.squeeze(0))
     simple_net_input = torch.tensor(features).float().to(device)
-    output = simple_net(simple_net_input[:101]) # 
-    output = torch.round(output)
+    
+    simple_net.eval()
+    with torch.no_grad():
+        output = simple_net(simple_net_input.unsqueeze(0)) 
+        output = torch.round(output).cpu().numpy()[0][0]
+        print(f'predicted : {"malignant" if output == 0 else "benign"}, ground truth: {typ}')
 
 # %% [markdown]
 # # Random Forests and SVM:

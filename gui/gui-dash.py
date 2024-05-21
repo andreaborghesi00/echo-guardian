@@ -8,6 +8,8 @@ from PIL import Image
 import io
 from dash_extensions.enrich import DashProxy, LogTransform, DashLogger
 import base64
+import torch.nn as nn
+
 
 def path_to_indices(path):
     """From SVG path to numpy array of coordinates, each row being a (row, col) point
@@ -29,7 +31,7 @@ def path_to_mask(path, shape):
     return mask
 
 def predict_roi_mask(img):
-    # Here we would use an api to predict the mask with our model
+    
     return np.zeros_like(img)
 
 # def np_to_svg()
