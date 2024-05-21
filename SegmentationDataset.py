@@ -44,8 +44,6 @@ class SegmentationDataset(Dataset):
                     
                     self.scaler.partial_fit(img)
                 pickle.dump(self.scaler, open('./models/scaler_segmentation.pkl', 'wb'))
-                print(e)
-                print("Scaler fitted and saved")
             
         
     def __len__(self):

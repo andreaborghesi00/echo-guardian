@@ -412,7 +412,7 @@ def train(model, train_loader, val_loader, optimizer, loss_criterion, epochs=10,
             'loss': loss_criterion,
             'optimizer': optimizer,
         }, f'./models/net_{continue_training}.pth')
-    
+
 
 # %%
 
@@ -619,6 +619,9 @@ else:
     segmentation_model = torch.load('segmentation.pth')
 
 
+# %% [markdown]
+# ### Example to how to use the classes created
+
 # %%
 from NNClassification import NNClassifier
 from UnetSegmenter import UnetSegmenter
@@ -627,41 +630,42 @@ from PIL import Image
 classifier = NNClassifier('models/best_model.pth')
 segmenter = UnetSegmenter('models/net_segment.pth')
 
-with open('dataset/benign/benign (1)_mask.png', 'rb') as f:
-    img = Image.open(f)
-    prediction = classifier.predict(image = img, mask = img)
-    masked_prediction = segmenter.predict(image = img)
-    plt.imshow(masked_prediction)
+image = Image.open('dataset/malignant/malignant (1).png').convert('L') # convert to grayscale, dunnno why it's RGB
+mask = Image.open('dataset/malignant/malignant (1)_mask.png') # this is already grayscale for some vooodoo reason
+prediction = classifier.predict(image = image, mask = mask)
+masked_prediction = segmenter.predict(image = image)
+plt.imshow(masked_prediction)
+image.close()
+mask.close()
 
 # %%
-for image in range(5):
+for image in range(10):
     img, mask = test_segment_ds[image]
+    img = img.squeeze().cpu().numpy() # remove the tensor dimension
+    mask = mask.squeeze().cpu().int().numpy()
+    
+    predicted_mask = segmenter.predict(image = img)
+    predicted_label_generated_mask = classifier.predict(image = img, mask = predicted_mask)[0][0]
+    predicted_label_real_mask = classifier.predict(image = img, mask = mask)[0][0]
+    
+    
     img_path = test_segment_ds.img_mask_paths[image][0]
-    label = 'benign' if 'benign' in img_path else 'malignant'
-    img = img.unsqueeze(0).to(device)
-    img_path = test_segment_ds.img_mask_paths[image][0]
-    typ = 'malignant' if 'malignant' in img_path else 'benign'
-    mask = mask.unsqueeze(0).to(device)
-    output = segmentation_model(img)
-    output = torch.sigmoid(output)
-    output = torch.round(output)
-    output = output.int()
-    mask = mask.int()
-
-    img = img.squeeze().cpu().numpy()
-    mask = mask.squeeze().cpu().numpy()
-    output = output.squeeze().cpu().numpy()
-
+    
+    real_label = 'benign' if 'benign' in img_path else 'malignant'
+    #predicted_label_real_mask = 'benign' if predicted_label_real_mask == 1 else 'malignant'
+    #predicted_label_generated_mask = 'benign' if predicted_label_generated_mask == 1 else 'malignant'
+    
+    
     plt.figure(figsize=(10, 10))
     plt.subplot(1, 3, 1)
     plt.imshow(img, cmap='gray')
-    plt.title(f'Image {typ}')
+    plt.title(f'Image real\nreal label: {real_label}')
     plt.subplot(1, 3, 2)
     plt.imshow(mask, cmap='gray')
-    plt.title('Ground truth')
+    plt.title(f'Mask ground truth\npredicted label: {predicted_label_real_mask}')
     plt.subplot(1, 3, 3)
-    plt.imshow(output, cmap='gray')
-    plt.title('Predicted')
+    plt.imshow(predicted_mask, cmap='gray')
+    plt.title(f'Predicted mask\npredicted label: {predicted_label_generated_mask}')
     plt.show()
 
 
@@ -671,7 +675,7 @@ test_classifier_ds[0][1]
 # %%
 from utils import radiomics_features
 
-# THIS WHOLE FUNCTION STINKS ASS AND I KNOW IT, I HATE THIS
+# this isn't needed anymore, we have the classes now, plus radiomics_features didn't rescale the features
 for image in range(20):
     img_path = test_segment_ds.img_mask_paths[image][0]
     typ = 'malignant' if 'malignant' in img_path else 'benign'

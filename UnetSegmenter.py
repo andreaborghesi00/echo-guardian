@@ -8,18 +8,18 @@ import cv2
 
 class UnetSegmenter():
     def __init__(self, model_path='model.pth'):
+        self.load_model(model_path)
+        self.scaler = pickle.load(open('./models/scaler_segmentation.pkl', 'rb'))
+
+    def load_model(self, model_path):
         
         checkpoint = torch.load(model_path)
         self.model = checkpoint['model']
         self.model.load_state_dict(checkpoint['model_state_dict'])
-        self.scaler = pickle.load(open('./models/scaler_segmentation.pkl', 'rb'))
         if torch.cuda.is_available():
             self.device = torch.device("cuda")
         else:
             self.device = torch.device("cpu")
-
-    def load_model(self, model_path):
-        self.model = torch.load(model_path)
     
     def predict(self, image):
             """
@@ -27,6 +27,7 @@ class UnetSegmenter():
 
             Parameters:
             image (numpy.ndarray or PIL.Image or str or torch.Tensor): The input image to be classified.
+            The size of the image should be 256x256, no color channels.
 
             Returns:
             torch.Tensor: The predicted class label.
@@ -34,15 +35,24 @@ class UnetSegmenter():
             Raises:
             TypeError: If the image type is not supported.
             """
-            # check type of image
             
-            image = np.uint8(image)
+            if isinstance(image, torch.Tensor):
+                if image.device != 'cpu':
+                    image = image.cpu().numpy()
+                else:
+                    image = image.numpy()
+                
+            if isinstance(image, Image.Image):
+                image = np.array(image)
+                image = np.uint8(image)
+            
             image = cv2.resize(image, (256, 256))
-            image = self.scaler.transform(image)
-            print(image.shape)
-            image = torch.tensor(image).float().unsqueeze(0).unsqueeze(0).to(self.device)
             
-            # resize image
+            # 5 is a value that should not be reached by the image if it is already scaled, so we can use it as a flag to not scale the image
+            if not image.max() <= 5:
+                image = self.scaler.transform(image)
+            
+            image = torch.tensor(image).float().unsqueeze(0).unsqueeze(0).to(self.device)
             
             
             

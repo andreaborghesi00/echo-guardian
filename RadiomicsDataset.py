@@ -2,6 +2,7 @@ from torch.utils.data import Dataset
 import SimpleITK as sitk
 import radiomics
 import albumentations as A
+import pickle
 import torch
 import numpy as np
 from tqdm import tqdm
@@ -93,7 +94,8 @@ class RadiomicsDataset(Dataset):
                 self.rad_features = self.scaler.transform(np.array(self.rad_features))        
             except:
                 self.scaler = self.scaler.fit(np.array(self.rad_features))
-                self.rad_features = self.scaler.transform(np.array(self.rad_features))        
+                self.rad_features = self.scaler.transform(np.array(self.rad_features)) 
+                pickle.dump(self.scaler, open('./models/scaler_classification.pkl', 'wb'))       
 
         self.rad_features = torch.tensor(self.rad_features).float() 
         self.labels = torch.tensor(self.labels).unsqueeze(1).float() # Unsqueeze for BCE loss 2D input requirements
@@ -120,6 +122,4 @@ class RadiomicsDataset(Dataset):
             else:
                 feat = torch.tensor(features_values).float()
 
-        #print (feat.shape, self.labels[idx].shape)
-        #print(feat)
         return feat, self.labels[idx]

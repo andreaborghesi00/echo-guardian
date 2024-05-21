@@ -3,6 +3,7 @@ import numpy as np
 from PIL import Image
 import torch.nn as nn
 import radiomics
+import pickle
 import torchvision.transforms as transforms
 import SimpleITK as sitk
 
@@ -10,6 +11,7 @@ import SimpleITK as sitk
 class NNClassifier():
     def __init__(self, model_path='model.pth'):
         self.load_model(model_path)
+        self.scaler = pickle.load(open('./models/scaler_classification.pkl', 'rb'))
 
     def load_model(self, model_path):
         
@@ -41,16 +43,15 @@ class NNClassifier():
             if isinstance(image, Image.Image):
                 image = np.array(image)
                 mask = np.array(mask)
-            if isinstance(image, str):
-                image = np.array(Image.open(image))
-                mask = np.array(Image.open(mask))
+                
             if isinstance(image, torch.Tensor):
                 image = image.numpy()
                 mask = mask.numpy()
             
             features = self.extract_radiomics(image, mask)
+            features = self.scaler.transform(np.array(features).reshape(1, -1))
             with torch.no_grad():
-                prediction = self.model(torch.Tensor(features).to(self.device).unsqueeze(0))
+                prediction = self.model(torch.Tensor(features).to(self.device))
 
             return prediction
     
@@ -99,8 +100,6 @@ class NNClassifier():
         sitk_image = sitk.GetImageFromArray(image.astype(float))
         sitk_mask = sitk.GetImageFromArray(mask.astype(float))
         
-        sitk_image = sitk.Cast(sitk_image, sitk.sitkUInt8)
-        sitk_mask = sitk.Cast(sitk_mask, sitk.sitkUInt8)
         
         features = extractor.execute(sitk_image, sitk_mask, voxelBased=False, label=1)
         features_values = [float(features[key]) for key in features if key.startswith('original_')]
