@@ -480,7 +480,6 @@ data_val, data_test, label_val, label_test = train_test_split(data_valtest, labe
 from albumentations.pytorch import ToTensorV2
 
 segmentation_train_augmentation = A.Compose([
-    A.Resize(512, 512),
     A.HorizontalFlip(p=0.5),
     A.VerticalFlip(p=0.5),
     A.Transpose(p=0.5),
@@ -496,7 +495,6 @@ segmentation_train_augmentation = A.Compose([
 
 # pytorch transforms
 segmentation_valtest_transform = A.Compose([
-    A.Resize(512, 512),
     A.Normalize(normalization='min_max'),
     ToTensorV2(),
 ])
