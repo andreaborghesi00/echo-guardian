@@ -2,8 +2,10 @@ import numpy as np
 from scipy import ndimage
 from skimage import data, draw
 
-from dash import Dash, dcc, html, Input, Output, State, no_update, callback
+import dash
+from dash import Dash, dcc, html, Input, Output, State, no_update, callback, ctx
 from dash_extensions.enrich import DashProxy, LogTransform, DashLogger
+from dash.exceptions import PreventUpdate
 import dash_daq as daq
 import plotly.express as px
 from flask import g
@@ -114,16 +116,17 @@ app.layout = html.Div([
     html.H3("Draw the Region Of Interest (ROI) on the image below:", style={'textAlign': 'center'}),
     html.Div([
         html.Div([
-            dcc.Graph(id="ultrasound-image", figure=fig, style={'height': '500px'}),
+            dcc.Graph(id="ultrasound-image", figure=fig),
         ], style={'width': '40%', 'display': 'inline-block', 'padding': '0 20px'}),
         html.Div([
-            dcc.Graph(id="mask-image", figure=fig_mask, style={'height': '500px'}),
+            dcc.Graph(id="segmenter-image", figure=fig_mask),
         ], style={'width': '40%', 'display': 'inline-block', 'padding': '0 20px'}),
     ], style={'marginBottom': '30px', 'textAlign': 'center'}),
     html.Div([
-        html.Button('Predict', id='classify-button', n_clicks=0, style={
+        html.Button('Predict with your mask', id='classify-button', n_clicks=0, style={
             'fontSize': '16px',
-            'padding': '10px 20px',
+            'padding': '10px 20px 10px 20px',
+            'marginRight': '10px',
             'backgroundColor': '#4CAF50',
             'color': 'white',
             'border': 'none',
@@ -131,6 +134,18 @@ app.layout = html.Div([
             'cursor': 'pointer',
             'transition': 'background-color 0.3s ease'
         }),
+        html.Button('Predict with segmenter mask', id='classify-with-segmenter-button', n_clicks=0, style={
+            'fontSize': '16px',
+            'padding': '10px 20px 10px 20px',
+            'marginLeft': '10px',
+            'backgroundColor': '#4CAF50',
+            'color': 'white',
+            'border': 'none',
+            'borderRadius': '4px',
+            'cursor': 'pointer',
+            'transition': 'background-color 0.3s ease'
+        })
+        ,
         html.Div(id='output-predict', style={
             'marginTop': '20px',
             'fontFamily': 'monospace',
@@ -140,44 +155,44 @@ app.layout = html.Div([
         }),
     ], style={'textAlign': 'center', 'marginTop': '30px'}),
     dcc.Store(id='image-store'),
-    dcc.Store(id='mask-store')
+    dcc.Store(id='mask-store'),
+    dcc.Store(id='segmenter-store'),
 ], style={
     'padding': '30px',
     'backgroundColor': '#f5f5f5',
-    'backgroundImage': 'url("background.jpg")',
+    # 'backgroundImage': 'url("background.jpg")',
     'backgroundSize': 'cover',
     'backgroundPosition': 'center'
 })
 
 @callback(
-    Output("mask-image", "figure"),
     Output("mask-store", "data"),
     Input("ultrasound-image", "relayoutData"),
-    State("ultrasound-image", "figure"),
+    State("image-store", "data"),
     prevent_initial_call=True,
 )
-def on_new_annotation(relayout_data, figure):
+def on_new_annotation(relayout_data, image):
     if "shapes" in relayout_data:
-        # Clear the previous shapes
-        figure["data"][0]["path"] = "" # clear previous drawing
         last_shape = relayout_data["shapes"][-1]
-        mask, mask_numpy = path_to_mask(last_shape["path"], img.shape)
-        fig_mask = px.imshow(mask)
-        return fig_mask, mask_numpy
+        mask_numpy= path_to_mask(last_shape["path"], image.shape)
+        return mask_numpy
     else:
-        return no_update, no_update
+        raise PreventUpdate
+
+
 @callback(
     Output("ultrasound-image", "figure"),
     Output("image-store", "data"),
+    Output("segmenter-image", "figure"),
     Input("upload-data", "contents"),
     State("upload-data", "filename"),
     prevent_initial_call=True,
 )
 def on_upload_data(contents, filenames):
     if contents is not None:
-        # Create an empty list to store the figures
         figures = []
-
+        fig_masks = []
+        
         for content, filename in zip(contents, filenames):
             _, content_string = content.split(',')
             decoded_data = base64.b64decode(content_string)
@@ -186,41 +201,48 @@ def on_upload_data(contents, filenames):
 
             img = Image.open(image_data).convert("L")
             numpy_image = np.array(img)
-
-            print(numpy_image.shape)
-            print(numpy_image)
+            mask = predict_roi(numpy_image)
+            fig_masks.append(px.imshow(mask))
 
             fig = px.imshow(numpy_image, title=filename)
             fig.update_layout(dragmode='drawclosedpath')
-            # Append the figure to the list
             figures.append(fig)
 
         # If no figures were created, return an empty figure
         if not figures:
             return px.imshow(np.zeros((1, 1)))
 
-        # Return the list of figures
-        return figures[0], numpy_image
-    return no_update, no_update
-    
+        return figures[0], numpy_image, fig_masks[0]
+    raise PreventUpdate
+
 @callback(
     Output("output-predict", "children"),
-    Input("classify-button", "n_clicks"),
+    Input("classify-button", "n_clicks"), # not actually used, it serves as a trigger
+    Input("classify-with-segmenter-button", "n_clicks"), # same as above
     State("image-store", "data"),
     State("mask-store", "data"),
+    State("segmenter-store", "data"),
     prevent_initial_call=True,
 )
-def on_predict(n_clicks, image, mask):
-    if n_clicks is None:
-        return "Please upload an image and draw a ROI."
-    elif image is None or mask is None:
-        return "Please upload an image and draw an ROI before predicting."
-    else:
-        try:
-            class_pred = predict_class(image, mask)
-            return f"Predicted class: {class_pred}"
-        except Exception as e:
-            return f"Error: {str(e)}"
+def on_predict(n_clicks_classify, n_clicks_classify_segmenter, image, mask, segmenter_mask):
+    if ctx.triggered_id == "classify-button":
+        if image is None or mask is None:
+            return "Please upload an image and draw an ROI before predicting."
+        else:
+            try:
+                class_pred = predict_class(image, mask)
+                return f"Predicted class: {class_pred}"
+            except Exception as e:
+                return f"Error: {str(e)}"
+    elif ctx.triggered_id == "classify-with-segmenter-button":
+        if image is None:
+            return "Please upload an image before predicting."
+        else:
+            try:
+                class_pred = predict_class(image, segmenter_mask)
+                return f"Predicted class with segmenter ROI: {class_pred}"
+            except Exception as e:
+                return f"Error: {str(e)}"
 
 if __name__ == "__main__":
     app.run(debug=True)
