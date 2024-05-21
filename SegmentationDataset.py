@@ -6,12 +6,14 @@ from tqdm import tqdm
 import re
 from PIL import Image
 import numpy as np
+import pickle
 
 class SegmentationDataset(Dataset):
-    def __init__(self, img_mask_paths, labels, transform = None, json_exclude_path=None, exclusion_class="cnn"):
+    def __init__(self, img_mask_paths, labels, transform = None, json_exclude_path=None, exclusion_class="cnn", scaler = None):
         self.transform = transform
         self.img_mask_paths = img_mask_paths
-
+        self.scaler = scaler
+        
         json_data = {}
         #load json
         if json_exclude_path is not None:
@@ -30,7 +32,22 @@ class SegmentationDataset(Dataset):
                 continue
 
         self.img_mask_paths = [path for i, path in enumerate(img_mask_paths) if i not in self.exclusion_list]
-
+        
+        if self.scaler is not None:
+            try:
+                self.scaler.transform(np.zeros((256, 256)))
+                print("Scaler already fitted")
+            except Exception as e:
+                for image_path, _ in self.img_mask_paths:
+                    img = cv2.imread(image_path, cv2.IMREAD_GRAYSCALE)
+                    img = cv2.resize(img, (256, 256))
+                    
+                    self.scaler.partial_fit(img)
+                pickle.dump(self.scaler, open('./models/scaler_segmentation.pkl', 'wb'))
+                print(e)
+                print("Scaler fitted and saved")
+            
+        
     def __len__(self):
         return len(self.img_mask_paths)
     
@@ -41,6 +58,12 @@ class SegmentationDataset(Dataset):
         img = cv2.imread(img_path, cv2.IMREAD_GRAYSCALE)
         mask = cv2.imread(mask_path, cv2.IMREAD_GRAYSCALE)
         mask = mask / 255.0
+        
+        if self.scaler is not None:
+            img = cv2.resize(img, (256, 256))
+            mask = cv2.resize(mask, (256, 256))
+            img = self.scaler.transform(img)
+            
         
         if self.transform:
             augmented = self.transform(image=img, mask=mask)

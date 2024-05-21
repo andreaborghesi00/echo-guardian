@@ -1,10 +1,22 @@
 import torch
 import numpy as np
 from PIL import Image
+import torch.nn as nn
+import pickle
+import cv2
+
 
 class UnetSegmenter():
     def __init__(self, model_path='model.pth'):
-        self.load_model(model_path)
+        
+        checkpoint = torch.load(model_path)
+        self.model = checkpoint['model']
+        self.model.load_state_dict(checkpoint['model_state_dict'])
+        self.scaler = pickle.load(open('./models/scaler_segmentation.pkl', 'rb'))
+        if torch.cuda.is_available():
+            self.device = torch.device("cuda")
+        else:
+            self.device = torch.device("cpu")
 
     def load_model(self, model_path):
         self.model = torch.load(model_path)
@@ -22,19 +34,24 @@ class UnetSegmenter():
             Raises:
             TypeError: If the image type is not supported.
             """
-            self.model.eval()
-            prediction = None
-
             # check type of image
-            if isinstance(image, np.ndarray):
-                prediction = self.model(image)
-            elif isinstance(image, Image):
-                prediction = self.model(np.array(image))
-            elif isinstance(image, str):
-                image = Image.open(image).convert("L")
-                prediction = self.model(np.array(image))
-            elif isinstance(image, torch.Tensor):
-                prediction = self.model(image)
-            else:
-                raise TypeError("Image type not supported")
-            return prediction
+            
+            image = np.uint8(image)
+            image = cv2.resize(image, (256, 256))
+            image = self.scaler.transform(image)
+            print(image.shape)
+            image = torch.tensor(image).float().unsqueeze(0).unsqueeze(0).to(self.device)
+            
+            # resize image
+            
+            
+            
+            self.model.eval()
+            
+            with torch.no_grad():
+                mask = self.model(image)
+                mask = torch.sigmoid(mask)
+                mask = torch.round(mask)
+                mask = mask.int().squeeze().cpu().numpy()
+                
+            return mask

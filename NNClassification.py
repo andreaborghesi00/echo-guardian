@@ -1,13 +1,28 @@
 import torch
 import numpy as np
 from PIL import Image
+import torch.nn as nn
+import radiomics
+import torchvision.transforms as transforms
+import SimpleITK as sitk
+
 
 class NNClassifier():
     def __init__(self, model_path='model.pth'):
         self.load_model(model_path)
 
     def load_model(self, model_path):
-        self.model = torch.load(model_path)
+        
+        checkpoint = torch.load(model_path)
+        self.model = checkpoint['model']
+        self.model.load_state_dict(checkpoint['model_state_dict'])
+        if torch.cuda.is_available():
+            self.device = torch.device("cuda")
+        else:
+            self.device = torch.device("cpu")
+    
+        self.model.to(self.device)
+        self.model.eval()
     
     def predict(self, image, mask):
             """
@@ -23,24 +38,20 @@ class NNClassifier():
             TypeError: If the image type is not supported.
             """
             self.model.eval()
-            prediction = None
-
-
-            # check type of image
-            if isinstance(image, np.ndarray):
-                prediction = self.model(NNClassifier.extract_radiomics(image, mask))
-            elif isinstance(image, Image):
+            if isinstance(image, Image.Image):
                 image = np.array(image)
-                prediction = self.model(NNClassifier.extract_radiomics(image, mask))
-            elif isinstance(image, str):
-                image = Image.open(image).convert("L")
-                image = np.array(image)
-                prediction = self.model(NNClassifier.extract_radiomics(image, mask))
-            elif isinstance(image, torch.Tensor):
+                mask = np.array(mask)
+            if isinstance(image, str):
+                image = np.array(Image.open(image))
+                mask = np.array(Image.open(mask))
+            if isinstance(image, torch.Tensor):
                 image = image.numpy()
-                prediction = self.model(NNClassifier.extract_radiomics(image, mask))
-            else:
-                raise TypeError("Image type not supported")
+                mask = mask.numpy()
+            
+            features = self.extract_radiomics(image, mask)
+            with torch.no_grad():
+                prediction = self.model(torch.Tensor(features).to(self.device).unsqueeze(0))
+
             return prediction
     
     @staticmethod
@@ -49,4 +60,48 @@ class NNClassifier():
             raise ValueError("Image and mask must have the same shape")
         if not isinstance(image, np.ndarray):
             raise TypeError("Image must be a numpy array")
-        pass
+        radiomics.logger.setLevel(40)
+        glcm_feats = [ # i know it's annoying, and it took way too long to find, but this is how you exclude a feature from the extraction
+            'Autocorrelation',
+            'ClusterProminence',
+            'ClusterShade',
+            'ClusterTendency',
+            'Contrast',
+            'Correlation',
+            'DifferenceAverage',
+            'DifferenceEntropy',
+            'DifferenceVariance',
+            'Id',
+            'Idm',
+            'Idmn',
+            'Idn',
+            'Imc1',
+            'Imc2',
+            'InverseVariance',
+            'JointAverage',
+            'JointEnergy',
+            'JointEntropy',
+            'MCC',
+            'MaximumProbability',
+            # 'SumAverage',
+            'SumEntropy',
+            'SumSquares'
+        ]
+        extractor = radiomics.featureextractor.RadiomicsFeatureExtractor()
+        extractor.disableAllFeatures()
+        extractor.enableFeatureClassByName('firstorder')
+        extractor.enableFeatureClassByName('shape2D')
+        extractor.enableFeaturesByName(glcm=glcm_feats)
+        extractor.enableFeatureClassByName('gldm')
+        extractor.enableFeatureClassByName('glrlm')
+        extractor.enableFeatureClassByName('glszm')
+        extractor.enableFeatureClassByName('ngtdm')
+        sitk_image = sitk.GetImageFromArray(image.astype(float))
+        sitk_mask = sitk.GetImageFromArray(mask.astype(float))
+        
+        sitk_image = sitk.Cast(sitk_image, sitk.sitkUInt8)
+        sitk_mask = sitk.Cast(sitk_mask, sitk.sitkUInt8)
+        
+        features = extractor.execute(sitk_image, sitk_mask, voxelBased=False, label=1)
+        features_values = [float(features[key]) for key in features if key.startswith('original_')]
+        return features_values
