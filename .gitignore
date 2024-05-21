@@ -11,3 +11,4 @@
 **.pt
 **/dataset_unique_masks
 **.pth
+**/models/

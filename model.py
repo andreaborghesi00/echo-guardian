@@ -268,12 +268,18 @@ from torchmetrics.classification import Dice
 from torchmetrics import Accuracy, ConfusionMatrix
 
 def validate(model, data_loader):
+    
+    try:
+        pbar.close()
+    except:
+        pass
     model.eval()
-
+    pbar = tqdm(total=len(data_loader), desc=f"Validation", leave=True)    
     macro_acc_metric = Accuracy(task='binary', average='macro').to(device)
     micro_acc_metric = Accuracy(task='binary', average='micro').to(device)
     cm = ConfusionMatrix(task='binary', num_classes=2).to(device)
-
+    
+    
     with torch.no_grad():
         for data, target in data_loader:
             data, target = data.to(device), target.to(device)
@@ -284,17 +290,16 @@ def validate(model, data_loader):
             macro_acc_metric.update(output, target)
             micro_acc_metric.update(output, target)
             cm.update(output, target)
+            pbar.set_description(f"Validation - Runninf Macro Acc: {macro_acc_metric.compute().item():.4f} - Running Micro Acc: {micro_acc_metric.compute().item():.4f}")
+            pbar.update(1)
             
     tn, fp, fn, tp = cm.compute().reshape(-1)
     specificity = tn / (tn + fp)
     sensitivity = tp / (tp + fn)
-    print(f'\nT      Predicted')
-    print(f'r      P  |  N')
-    print(f'u   P: {tp} | {fn}')
-    print(f'e   N: {fp}  | {tn}')
-
+    pbar.set_description(f"Validation - Macro Acc: {macro_acc_metric.compute().item():.4f} - Micro Acc: {micro_acc_metric.compute().item():.4f} - Specificity: {specificity:.4f} - Sensitivity: {sensitivity:.4f}")
+    pbar.close()
+    
     return macro_acc_metric.compute(), micro_acc_metric.compute(), specificity.item(), sensitivity.item()
-
 
 # %%
 from functools import wraps
@@ -313,30 +318,114 @@ def tqdm_decorator(use_tqdm):
     return decorator
 
 @tqdm_decorator(use_tqdm=False)
-def train(model, train_loader, val_loader, optimizer, loss_criterion, epochs=10, pbar=None):
-    for epoch in range(epochs):
+def train(model, train_loader, val_loader, optimizer, loss_criterion, epochs=10, continue_training=''):
+        
+    # ----------------------------------- SETUP -----------------------------------
+      
+    try:
+        pbar.close()
+    except:
+        pass
+    previous_epoch = 0
+    
+    
+    try:
+        checkpoint = torch.load('./models/best_model.pth')
+        best_model = checkpoint['model']
+        best_criterion = checkpoint['loss']
+        best_scheduler = checkpoint['scheduler']
+        best_optimizer = checkpoint['optimizer']
+        best_model.load_state_dict(checkpoint['model_state_dict'])
+        best_criterion.load_state_dict(checkpoint['criterion_state_dict'])
+        best_scheduler.load_state_dict(checkpoint['scheduler_state_dict'])
+        best_optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
+        
+        print(f"Found best model, calculating metrics...")
+        best_macro, best_micro, best_spec, best_sens = validate(net=best_model, dataloader=val_loader)
+        print(f'Best model: Macro Acc: {best_macro:.3f}, Micro Acc: {best_micro:.3f}, Specificity {best_spec:.3f}, Sensitivity {best_sens:.3f}')
+        del best_model, best_optimizer, best_criterion, best_scheduler, checkpoint
+    except Exception as e:
+        best_micro = -1
+        print(e)
+        print("No best model found, starting from scratch")
+
+    if continue_training != '':
+        try:
+            checkpoint = torch.load(f'./models/net_{continue_training}.pth')
+            model = checkpoint['model']
+            loss_criterion = checkpoint['loss']
+            optimizer = checkpoint['optimizer']
+            model.load_state_dict(checkpoint['model_state_dict'])
+            loss_criterion.load_state_dict(checkpoint['criterion_state_dict'])
+            optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
+            previous_epoch = checkpoint['epoch']  # Update previous_epoch
+            epochs += previous_epoch  # Update total number of epochs to train
+            
+            del checkpoint
+            print(f"Continuing training of {continue_training} model, checkpoint at epoch {previous_epoch}")
+        except Exception as e:
+            print(e)
+            print(f"No {continue_training} checkpoint found, starting from scratch")
+
+    # ----------------------------------- TRAINING -----------------------------------
+    
+    for epoch in range(previous_epoch, epochs):
+        print ('\n')
+        pbar = tqdm(total=len(train_loader), desc=f"Validation", leave=True)
+        running_loss = []
+        model.train()  
         for data, target in train_loader:
             data, target = data.to(device), target.to(device)
-            # target = target.squeeze().long()
             optimizer.zero_grad()
             output = model(data)
             loss = loss_criterion(output, target)
             loss.backward()
             optimizer.step()
-
-        macro_acc, micro_acc, specificity, sensitivity = validate(model, val_loader)
-        if pbar is not None:
-            pbar.set_description(f'Epoch: {epoch + 1} - Macro Acc: {macro_acc:.3f}, Micro Acc: {micro_acc:.3f}, Specificity {specificity:.3f}, Sensitivity {sensitivity:.3f}')
+            running_loss.append(loss.item())
+            pbar.set_description(f"Training - Epoch {epoch}/{epochs}, Running Loss: {np.mean(running_loss):.4f}")
             pbar.update(1)
-        else:
-            print(f'Epoch: {epoch + 1} - Macro Acc: {macro_acc:.3f}, Micro Acc: {micro_acc:.3f}, Specificity {specificity:.3f}, Sensitivity {sensitivity:.3f}')
-
+        
+        pbar.set_description(f"Training - Epoch {epoch}/{epochs}, Loss: {np.mean(running_loss):.4f}")
+        pbar.close()
+        
+        model.eval()
+        _, micro_acc, _, _ = validate(model, val_loader)
+        
+        if micro_acc > best_micro:
+            print(f"Saving model with Micro Acc: {micro_acc:.3f} > {best_micro:.3f}")
+            best_micro = micro_acc
+            torch.save({
+                'epoch': epoch,
+                'model_state_dict': model.state_dict(),
+                'optimizer_state_dict': optimizer.state_dict(),
+                'loss_state_dict': loss_criterion.state_dict(),
+                'model': model,
+                'loss': loss_criterion,
+                'optimizer': optimizer,
+            }, f'./models/best_model.pth')
+        torch.save({
+            'epoch': epoch,
+            'model_state_dict': model.state_dict(),
+            'optimizer_state_dict': optimizer.state_dict(),
+            'loss_state_dict': loss_criterion.state_dict(),
+            'model': model,
+            'loss': loss_criterion,
+            'optimizer': optimizer,
+        }, f'./models/net_{continue_training}.pth')
+    
 
 # %%
-# optimizer = optim.Adam(simple_net.parameters(), lr=1e-3, weight_decay=1e-5)
-# loss_criterion = nn.BCELoss()
 
-# train(simple_net, train_classifier_dl, val_classifier_dl, optimizer, loss_criterion, epochs=0)
+simple_net = SimpleNet().to(device)
+optimizer = optim.Adam(simple_net.parameters(), lr=1e-3, weight_decay=1e-5)
+loss_criterion = nn.BCELoss()
+to_train = False
+
+if to_train:
+    train(model = simple_net, train_loader = train_classifier_dl, val_loader = val_classifier_dl, optimizer = optimizer, loss_criterion = loss_criterion, epochs = 100, continue_training='simple_net')
+    torch.save(simple_net.state_dict(), 'simple_net.pth')
+else:
+    simple_net.load_state_dict(torch.load('simple_net.pth'))
 
 # %% [markdown]
 # # Segmentation
@@ -413,6 +502,7 @@ segmentation_valtest_transform = A.Compose([
 ])
 
 
+
 # %%
 # Create and save or load the dataloaders
 batch_size = 16
@@ -436,17 +526,20 @@ else:
     train_segment_ds = SegmentationDataset(data_train, label_train,
                                     transform=segmentation_train_augmentation,
                                     json_exclude_path='excludedImages.json',
-                                    exclusion_class='cnn')
+                                    exclusion_class='cnn',
+                                    scaler = MinMaxScaler())
     
     val_segment_ds = SegmentationDataset(data_val, label_val,
                                     transform=segmentation_valtest_transform,
                                     json_exclude_path='excludedImages.json',
-                                    exclusion_class='cnn')
+                                    exclusion_class='cnn',
+                                    scaler = train_segment_ds.scaler)
     
     test_segment_ds = SegmentationDataset(data_test, label_test,
                                     transform=segmentation_valtest_transform,
                                     json_exclude_path='excludedImages.json',
-                                    exclusion_class='cnn')
+                                    exclusion_class='cnn',
+                                    scaler = train_segment_ds.scaler)
     torch.save(train_segment_ds, train_segment_ds_path)
     torch.save(test_segment_ds, test_segment_ds_path)
     torch.save(val_segment_ds, val_segment_ds_path)
@@ -590,6 +683,20 @@ df.to_csv(df_path, index=True)
 print(df.head(25))
 
 # %%
+from NNClassification import NNClassifier
+from UnetSegmenter import UnetSegmenter
+from PIL import Image
+
+classifier = NNClassifier('models/best_model.pth')
+segmenter = UnetSegmenter('models/net_segment.pth')
+
+with open('dataset/benign/benign (1)_mask.png', 'rb') as f:
+    img = Image.open(f)
+    prediction = classifier.predict(image = img, mask = img)
+    masked_prediction = segmenter.predict(image = img)
+    plt.imshow(masked_prediction)
+
+# %%
 for image in range(25):
     img, mask = test_segment_ds[image]
     img_path = test_segment_ds.img_mask_paths[image][0]
@@ -625,6 +732,31 @@ for image in range(25):
     plt.show()
 
 
+# %%
+test_classifier_ds[0][1]
+
+# %%
+from utils import radiomics_features
+
+# THIS WHOLE FUNCTION STINKS ASS AND I KNOW IT, I HATE THIS
+for image in range(20):
+    img_path = test_segment_ds.img_mask_paths[image][0]
+    typ = 'malignant' if 'malignant' in img_path else 'benign'
+    img, _ = test_segment_ds[image]
+    img = img.to(device)
+    img = img.unsqueeze(0)  # Add a batch dimension
+    mask = torch.round(torch.sigmoid(segmentation_model(img))).int()  # Convert to integer tensor
+    
+    
+    features = radiomics_features(img.squeeze(0), mask.squeeze(0))
+    simple_net_input = torch.tensor(features).float().to(device)
+    
+    simple_net.eval()
+    with torch.no_grad():
+        output = simple_net(simple_net_input.unsqueeze(0)) 
+        output = torch.round(output).cpu().numpy()[0][0]
+        print(f'predicted : {"malignant" if output == 0 else "benign"}, ground truth: {typ}')
+
 # %% [markdown]
 # # Random Forests and SVM:
 
@@ -648,12 +780,12 @@ parameters = {'kernel':['linear', 'rbf', 'sigmoid', 'poly', 'random_forest'],
               'n_estimators' : (100, 1000, 100),
               'step': 0.3}
 
-best_model, models = grid_search(train_features = train_data,
-                    test_features = val_data,   
-                    train_labels = train_labels,
-                    test_labels = val_labels,
-                    params = parameters,
-                    folds = 5)
+#best_model, models = grid_search(train_features = train_data,
+#                    test_features = val_data,   
+#                    train_labels = train_labels,
+#                    test_labels = val_labels,
+#                    params = parameters,
+#                    folds = 5)
 
 # %%
 from sklearn.metrics import accuracy_score

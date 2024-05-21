@@ -10,6 +10,9 @@ import numpy as np
 from sklearn.metrics import accuracy_score
 warnings.filterwarnings('ignore')
 import SimpleITK as sitk
+from PIL import Image
+import torchvision.transforms as transforms
+
 
 def process_fold(model, train_index, test_index, features, labels, results = None, fold_index = None, lock = None):
     
@@ -174,10 +177,46 @@ def srgb2gray(image):
 
 
 def radiomics_features(image, mask):
+    radiomics.logger.setLevel(40)
+    glcm_feats = [ # i know it's annoying, and it took way too long to find, but this is how you exclude a feature from the extraction
+        'Autocorrelation',
+        'ClusterProminence',
+        'ClusterShade',
+        'ClusterTendency',
+        'Contrast',
+        'Correlation',
+        'DifferenceAverage',
+        'DifferenceEntropy',
+        'DifferenceVariance',
+        'Id',
+        'Idm',
+        'Idmn',
+        'Idn',
+        'Imc1',
+        'Imc2',
+        'InverseVariance',
+        'JointAverage',
+        'JointEnergy',
+        'JointEntropy',
+        'MCC',
+        'MaximumProbability',
+        # 'SumAverage',
+        'SumEntropy',
+        'SumSquares'
+    ]
     extractor = radiomics.featureextractor.RadiomicsFeatureExtractor()
-    #image = sitk.ReadImage(image, sitk.sitkUInt8)
-    #mask = sitk.ReadImage(mask, sitk.sitkUInt8)
-    features = extractor.execute(image, mask, voxelBased=False, label=255)
+    extractor.disableAllFeatures()
+    extractor.enableFeatureClassByName('firstorder')
+    extractor.enableFeatureClassByName('shape2D')
+    extractor.enableFeaturesByName(glcm=glcm_feats)
+    extractor.enableFeatureClassByName('gldm')
+    extractor.enableFeatureClassByName('glrlm')
+    extractor.enableFeatureClassByName('glszm')
+    extractor.enableFeatureClassByName('ngtdm')
+    sitk_image = sitk.GetImageFromArray(np.array(transforms.ToPILImage()(image.cpu())))
+    sitk_mask = sitk.GetImageFromArray(np.array(transforms.ToPILImage()(mask.cpu())))
+    
+    features = extractor.execute(sitk_image, sitk_mask, voxelBased=False, label=1)
     features_values = [float(features[key]) for key in features if key.startswith('original_')]
     return features_values
 
