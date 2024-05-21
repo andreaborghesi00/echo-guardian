@@ -6,6 +6,7 @@ from tqdm import tqdm
 import re
 from PIL import Image
 import numpy as np
+import pandas as pd
 
 class SegmentationDataset(Dataset):
     def __init__(self, img_mask_paths, labels, transform = None, json_exclude_path=None, exclusion_class="cnn"):

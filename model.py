@@ -104,7 +104,7 @@ for folder in os.listdir(path):
 
 df.index = range(1, len(df) + 1)
 print(df.shape)
-print(df.head(25))
+print(df.head())
 
 # %% [markdown]
 # ## Splitting, datasets, data loaders
@@ -344,19 +344,22 @@ def train(model, train_loader, val_loader, optimizer, loss_criterion, epochs=10,
 # %%
 import cv2
 
-path = 'dataset_unique_masks/'
+# Create new dataset folder with unique masks for each image
+new_path = 'dataset_unique_masks/'
 
-for folder in os.listdir(path):
-    for file in os.listdir(os.path.join(path, folder)):
+for folder in os.listdir(new_path):
+    for file in os.listdir(os.path.join(new_path, folder)):
         if 'mask_' in file:
             original_mask = file.split('_mask_')[0] + '_mask.png'
             print(f'original_mask = {original_mask}')
             print(f'second mask = {file}')
-            orig_mask = cv2.imread(os.path.join(path, folder, original_mask), cv2.IMREAD_GRAYSCALE)
-            second_mask = cv2.imread(os.path.join(path, folder, file), cv2.IMREAD_GRAYSCALE)
+            orig_mask = cv2.imread(os.path.join(new_path, folder, original_mask), cv2.IMREAD_GRAYSCALE)
+            second_mask = cv2.imread(os.path.join(new_path, folder, file), cv2.IMREAD_GRAYSCALE)
             new_mask = cv2.bitwise_or(orig_mask, second_mask)
-            cv2.imwrite(os.path.join(path, folder, original_mask), new_mask)
-            # !rm "{os.path.join(path, folder, file)}"
+            cv2.imwrite(os.path.join(new_path, folder, original_mask), new_mask)
+            # !rm "{os.path.join(new_path, folder, file)}"
+
+path = 'dataset_unique_masks/'
 
 df_segment = pd.DataFrame(columns=['image', 'mask', 'label'])
 
@@ -372,30 +375,31 @@ for folder in os.listdir(path):
             })])
 
 df_segment.index = range(1, len(df_segment) + 1)
+print(df_segment.shape)
+print(df_segment.head())
 
 # %%
 img_mask_paths_segment = [(df_segment['image'].iloc[idx], df_segment['mask'].iloc[idx]) for idx in range(len(df_segment))]
-labels_segment = df_segment['label'].values
-print(np.shape(labels_segment))
-print(labels_segment)
+labels = df_segment['label'].values
+print(np.shape(labels))
+# print(labels)
 
-
-data_train, data_valtest, label_train, label_valtest = train_test_split(img_mask_paths_segment, labels_segment, test_size=0.2, random_state=69420, stratify=labels_segment)
+data_train, data_valtest, label_train, label_valtest = train_test_split(img_mask_paths_segment, labels, test_size=0.2, random_state=69420, stratify=labels)
 data_val, data_test, label_val, label_test = train_test_split(data_valtest, label_valtest, test_size=0.5, random_state=69420, stratify=label_valtest)
 
 # %%
 from albumentations.pytorch import ToTensorV2
 
 segmentation_train_augmentation = A.Compose([
-    A.Resize(256, 256),
+    A.Resize(512, 512),
     A.HorizontalFlip(p=0.5),
     A.VerticalFlip(p=0.5),
     A.Transpose(p=0.5),
-    A.ShiftScaleRotate(shift_limit=0.1, scale_limit=0.1, rotate_limit=25, p=0.5),
+    A.ShiftScaleRotate(shift_limit=0.1, scale_limit=0.2, rotate_limit=25, p=0.5),
     A.RandomBrightnessContrast(p=0.5),
     A.RandomGamma(p=0.5),
     A.GaussNoise(var_limit=(5, 20), p=0.5),
-    A.Blur(blur_limit=5, p=0.5),
+    A.Blur(blur_limit=7, p=0.5),
     A.Normalize(normalization='min_max'),
     ToTensorV2(),
     
@@ -403,7 +407,7 @@ segmentation_train_augmentation = A.Compose([
 
 # pytorch transforms
 segmentation_valtest_transform = A.Compose([
-    A.Resize(256, 256),
+    A.Resize(512, 512),
     A.Normalize(normalization='min_max'),
     ToTensorV2(),
 ])
@@ -455,8 +459,8 @@ val_segment_dl = DataLoader(val_segment_ds, batch_size=batch_size, num_workers=8
 
 # %%
 def validate_segmentation(model, data_loader):
-    iou_metric = BinaryJaccardIndex().to(device)
-    dice_metric = Dice(num_classes=1, multiclass=False).to(device)
+    iou_metric_val = BinaryJaccardIndex().to(device)
+    dice_metric_val = Dice(num_classes=1, multiclass=False).to(device)
     
     with torch.no_grad():
         for data, target in data_loader:
@@ -468,69 +472,137 @@ def validate_segmentation(model, data_loader):
             output = output.int()
             target = target.int()
             
-            iou_metric.update(output, target)
-            dice_metric.update(output, target)
+            iou_metric_val.update(output, target)
+            dice_metric_val.update(output, target)
 
-    return iou_metric.compute(), dice_metric.compute()
+    return iou_metric_val.compute(), dice_metric_val.compute()
 
 def train_segmentation(model, train_loader, val_loader, optimizer, loss_criterion, epochs=10, pbar=None):
+
+    iou_metric_train = BinaryJaccardIndex().to(device)
+    dice_metric_train = Dice(num_classes=1, multiclass=False).to(device)
+
+    iou_train = 0
+    dice_train = 0
     
     for epoch in range(epochs):
-        mean_loss = 0
-        for data, target in train_loader:
-            data, target = data.to(device), target.to(device)
-            optimizer.zero_grad()
-            output = model(data)
-            output = torch.sigmoid(output)
-            loss = loss_criterion(output, target.float()) 
-            loss.backward()
-            optimizer.step()
-            mean_loss += loss.item()
+            train_loss = 0
+            model.train()
+            for data, target in tqdm(train_loader):
+                data, target = data.to(device), target.to(device)
+                optimizer.zero_grad()
+                output = model(data)
+                # output = torch.sigmoid(output)  # DO NOT compute sigmoid because the loss_criterion is BCEWithLogitsLoss (Sigmoid + BCELoss)
+                loss = loss_criterion(output, target.float())
+                loss.backward()
+                optimizer.step()
+                train_loss += loss.item()
 
-        iou, dice = validate_segmentation(model, val_loader)
-        if pbar is not None:
-            pbar.set_description(f'Epoch: {epoch + 1} - Val IoU: {iou:.3f}, Val Dice: {dice:.3f}, train Loss: {mean_loss / len(train_loader)}')
-            pbar.update(1)
-        else:
-            print(f'Epoch: {epoch + 1} - IoU: {iou:.3f}, Dice: {dice:.3f}, Train Loss: {mean_loss / len(train_loader)}')
-    # save the model
-    torch.save(model, 'segmentation.pth')
+                output = torch.sigmoid(output) # Sigmoid for probability
+                output = torch.round(output) # Round to 0 or 1 (torch float)
+                output = output.int() # Convert to int for metrics
+                target = target.int() # Convert to int for metrics
+
+                iou_metric_train.update(output, target)
+                dice_metric_train.update(output, target)
+            
+            iou_train = iou_metric_train.compute()
+            dice_train = dice_metric_train.compute()
+
+            model.eval()
+            iou_val, dice_val = validate_segmentation(model, val_loader)
+            if pbar is not None:
+                pbar.set_description(f'Epoch: {epoch + 1} Loss {train_loss:.4f} - Train IoU {iou_train:.3f} Val IoU: {iou_val:.3f}, Train Dice {dice_train:.3f} Val Dice: {dice_val:.3f}')
+                pbar.update(1)
+            else:
+                print(f'Epoch: {epoch + 1} Loss {train_loss:.4f} - Train IoU {iou_train:.3f} Val IoU: {iou_val:.3f}, Train Dice {dice_train:.3f} Val Dice: {dice_val:.3f}')
     
-    
+
 
 # %%
 import segmentation_models_pytorch as smp
 
-segmentation_model = smp.Unet(
-    encoder_name="resnet34",        # choose encoder, e.g. mobilenet_v2 or efficientnet-b7
-    encoder_name="resnet34",        # choose encoder, e.g. mobilenet_v2 or efficientnet-b7
-    encoder_weights="imagenet",     # use `imagenet` pre-trained weights for encoder initialization
-    in_channels=1,                  # model input channels (1 for gray-scale images, 3 for RGB, etc.)
-    classes=1,                      # model output channels (number of classes in your dataset)
-)
+# Define your configuration
+config = {
+    'arch': 'DeepLabV3Plus',
+    'encoder_name': 'resnet18',
+    'encoder_weights': 'imagenet',
+    'in_channels': 1,
+    'classes': 1,
+}
+
+segmentation_model = smp.create_model(**config)
+
+print(device)
 segmentation_model.to(device)
 
-optimizer = torch.optim.Adam(filter(lambda p: p.requires_grad, segmentation_model.parameters()), lr=0.001)
+learning_rate = 2e-3
+weight_decay = learning_rate * 0.1 
+epochs = 50
+
+optimizer = torch.optim.AdamW(filter(lambda p: p.requires_grad, segmentation_model.parameters()), lr=learning_rate, weight_decay=weight_decay)
 loss_criterion = nn.BCEWithLogitsLoss()
-epochs = 100
-pbar = tqdm(total=epochs, desc='Training', leave=True, unit='epoch')
 
+config.update({
+    'optimizer': 'AdamW',
+    'lr': learning_rate,
+    'weight_decay': weight_decay,
+    'epochs': epochs,
+})
 
-train_segmentation(segmentation_model, train_segment_dl, val_segment_dl, optimizer, loss_criterion, epochs=100)
+train_segmentation(segmentation_model, train_segment_dl, val_segment_dl, optimizer, loss_criterion, epochs=epochs)
 
 # %%
-test_segment_ds[0]
+iou_test, dice_test = validate_segmentation(segmentation_model, test_segment_dl)
+print(f'Test IoU: {iou_test:.3f}, Test Dice: {dice_test:.3f}')
 
 # %%
-for image in range(20):
+model_name = config['arch'] + '_' + config['encoder_name'] + '_lr_' + str(config['lr']) + '_epochs_' + str(config['epochs']) + '_model.pth'
+model_path = os.path.join('models', model_name)
+torch.save(segmentation_model.state_dict(), model_path)
+
+df_path = os.path.join('models', 'models.csv')
+if os.path.exists(df_path):
+    df = pd.read_csv(df_path)
+else:
+    df = pd.DataFrame(columns=['arch', 'encoder_name', 'encoder_weights', 'in_channels', 'classes',
+                               'optimizer', 'lr', 'weight_decay', 'epochs', 'test_iou', 'test_dice'])
+
+# Add the current model's configuration to the DataFrame
+df = pd.concat([df, pd.DataFrame({
+    'arch': [config['arch']],
+    'encoder_name': [config['encoder_name']],
+    'encoder_weights': [config['encoder_weights']],
+    'in_channels': [config['in_channels']],
+    'classes': [config['classes']],
+    'optimizer': [config['optimizer']],
+    'lr': [config['lr']],
+    'weight_decay': [config['weight_decay']],
+    'epochs': [config['epochs']],
+    'test_iou': [iou_test.cpu().numpy()], 
+    'test_dice': [dice_test.cpu().numpy()]
+})])
+
+# Save the DataFrame
+df.to_csv(df_path, index=True)
+
+# %%
+print(df.head(25))
+
+# %%
+for image in range(25):
     img, mask = test_segment_ds[image]
     img_path = test_segment_ds.img_mask_paths[image][0]
     label = 'benign' if 'benign' in img_path else 'malignant'
+
     img = img.unsqueeze(0).to(device)
-    img_path = test_segment_ds.img_mask_paths[image][0]
-    typ = 'malignant' if 'malignant' in img_path else 'benign'
     mask = mask.unsqueeze(0).to(device)
-    output = segmentation_model(img)
+    
+    segmentation_model.eval()
+    
+    with torch.no_grad():
+        output = segmentation_model(img)
+
     output = torch.sigmoid(output)
     output = torch.round(output)
     output = output.int()
@@ -543,7 +615,7 @@ for image in range(20):
     plt.figure(figsize=(10, 10))
     plt.subplot(1, 3, 1)
     plt.imshow(img, cmap='gray')
-    plt.title(f'Image {typ}')
+    plt.title('Image: ' + label)
     plt.subplot(1, 3, 2)
     plt.imshow(mask, cmap='gray')
     plt.title('Ground truth')
@@ -552,10 +624,6 @@ for image in range(20):
     plt.title('Predicted')
     plt.show()
 
-
-# %%
-for i in test_segment_ds:
-    features = radiomics_features(i[0])
 
 # %% [markdown]
 # # Random Forests and SVM:
