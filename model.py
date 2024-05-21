@@ -412,7 +412,7 @@ def train(model, train_loader, val_loader, optimizer, loss_criterion, epochs=10,
             'loss': loss_criterion,
             'optimizer': optimizer,
         }, f'./models/net_{continue_training}.pth')
-    
+
 
 # %%
 
