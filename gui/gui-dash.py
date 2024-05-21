@@ -8,8 +8,9 @@ from PIL import Image
 import io
 from dash_extensions.enrich import DashProxy, LogTransform, DashLogger
 import base64
-import torch.nn as nn
-
+from NNClassification import NNClassifier
+from UnetSegmenter import UnetSegmenter
+from flask import g
 
 def path_to_indices(path):
     """From SVG path to numpy array of coordinates, each row being a (row, col) point
@@ -30,11 +31,45 @@ def path_to_mask(path, shape):
     mask = ndimage.binary_fill_holes(mask)
     return mask
 
-def predict_roi_mask(img):
-    
-    return np.zeros_like(img)
+def set_classifier_path(path):
+    g.classifier_path = path
 
-# def np_to_svg()
+def get_classifier_path():
+    if 'classifier_path' not in g:
+        set_classifier_path('model.pth')
+    return g.classifier_path
+
+def get_classifier():
+    if 'classifier' not in g:
+        g.classifier = NNClassifier(get_classifier_path())
+    return g.classifier
+
+def set_segmenter_path(path):
+    g.segmenter_path = path
+
+def get_segmenter_path():
+    if 'segmenter_path' not in g:
+        set_segmenter_path('model.pth')
+    return g.segmenter_path
+
+def get_segmenter():
+    if 'segmenter' not in g:
+        g.segmenter = UnetSegmenter(get_segmenter_path())
+    return g.segmenter
+
+def segment_and_classify(image):
+    segmenter = get_segmenter()
+    classifier = get_classifier()
+    mask = segmenter.predict(image)
+    return classifier.predict(image, mask)
+
+def predict_roi_mask(img):
+    segmenter = get_segmenter()
+    return segmenter.predict(img)
+
+def predict_class(img):
+    classifier = get_classifier()
+    return classifier.predict(img)
 
 img = data.chelsea()
 mask = np.zeros(img.shape, dtype=bool)
