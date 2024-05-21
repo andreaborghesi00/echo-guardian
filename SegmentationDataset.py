@@ -55,7 +55,12 @@ class SegmentationDataset(Dataset):
         
         img = cv2.imread(img_path, cv2.IMREAD_GRAYSCALE)
         mask = cv2.imread(mask_path, cv2.IMREAD_GRAYSCALE)
-        mask = mask / 255.0
+        img = img.astype(np.uint8)
+        mask = mask.astype(np.uint8)
+        
+        # check if mask max value is 255, if not, normalize it
+        if mask.max() > 2:
+            mask = mask / 255.0
         
         if self.scaler is not None:
             img = cv2.resize(img, (256, 256))
@@ -68,5 +73,5 @@ class SegmentationDataset(Dataset):
             img = augmented['image']
             mask = augmented['mask'].long().unsqueeze(0)
         
-        return img, mask
+        return img.float(), mask.float()
 

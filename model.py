@@ -113,7 +113,6 @@ print(df.head())
 img_mask_paths = [(df['image'].iloc[idx], df['mask'].iloc[idx]) for idx in range(len(df))]
 labels = df['label'].values
 print(np.shape(labels))
-# print(labels)
 
 # %%
 data_train, data_valtest, label_train, label_valtest = train_test_split(img_mask_paths, labels, test_size=0.2, random_state=69420, stratify=labels)
@@ -124,18 +123,18 @@ data_val, data_test, label_val, label_test = train_test_split(data_valtest, labe
 train_transform = A.Compose([
     A.HorizontalFlip(p=0.5),
     A.VerticalFlip(p=0.5),
-    # A.Transpose(p=0.5),
     A.ShiftScaleRotate(shift_limit=0.1, scale_limit=0.1, rotate_limit=5, p=0.5),
-    # A.RandomBrightnessContrast(p=0.5),
-    # A.RandomGamma(p=0.5),
     A.GaussNoise(var_limit=(5, 20), p=0.5),
     A.Blur(blur_limit=3, p=0.5),
+    # A.Transpose(p=0.5),
+    # A.RandomBrightnessContrast(p=0.5),
+    # A.RandomGamma(p=0.5),
     # A.Normalize(mean=(0.5,), std=(0.5,), max_pixel_value=255.0),
 ])
 
 val_transform = A.Compose([
     # A.Normalize(mean=(0.5,), std=(0.5,), max_pixel_value=255.0),
-    A.GaussNoise(p=0.5),
+    A.GaussNoise(p=0.5), # why?
 ])
 
 
@@ -258,11 +257,6 @@ class RadiomicsNet(nn.Module):
 
 
 # %%
-# simple_net = SimpleNet().to(device)
-# radiomics_net = RadiomicsNet().to(device)
-# print(radiomics_net)
-
-# %%
 from torchmetrics.classification import BinaryJaccardIndex
 from torchmetrics.classification import Dice
 from torchmetrics import Accuracy, ConfusionMatrix
@@ -304,20 +298,6 @@ def validate(model, data_loader):
 # %%
 from functools import wraps
 
-def tqdm_decorator(use_tqdm):
-    def decorator(func):
-        @wraps(func)
-        def wrapper(*args, **kwargs):
-            if use_tqdm:
-                with tqdm(total=kwargs['epochs'], desc='Training', leave=True, unit='epoch') as pbar:
-                    kwargs['pbar'] = pbar
-                    return func(*args, **kwargs)
-            else:
-                return func(*args, **kwargs)
-        return wrapper
-    return decorator
-
-@tqdm_decorator(use_tqdm=False)
 def train(model, train_loader, val_loader, optimizer, loss_criterion, epochs=10, continue_training=''):
         
     # ----------------------------------- SETUP -----------------------------------
@@ -485,7 +465,6 @@ segmentation_train_augmentation = A.Compose([
     A.VerticalFlip(p=0.5),
     A.Transpose(p=0.5),
     A.ShiftScaleRotate(shift_limit=0.1, scale_limit=0.2, rotate_limit=25, p=0.5),
-    A.RandomBrightnessContrast(p=0.5),
     A.RandomGamma(p=0.5),
     A.GaussNoise(var_limit=(5, 20), p=0.5),
     A.Blur(blur_limit=7, p=0.5),
@@ -548,68 +527,128 @@ train_segment_dl = DataLoader(train_segment_ds, batch_size=batch_size, shuffle=T
 test_segment_dl = DataLoader(test_segment_ds, batch_size=batch_size, num_workers=8)
 val_segment_dl = DataLoader(val_segment_ds, batch_size=batch_size, num_workers=8)
 
-
 # %%
+from functools import wraps
+from tqdm import tqdm
+import torch
+from torchmetrics.classification import BinaryJaccardIndex, Dice
+
+
 def validate_segmentation(model, data_loader):
     iou_metric_val = BinaryJaccardIndex().to(device)
     dice_metric_val = Dice(num_classes=1, multiclass=False).to(device)
-    
     with torch.no_grad():
         for data, target in data_loader:
             data, target = data.to(device), target.to(device)
-
             output = model(data)
             output = torch.sigmoid(output)
             output = torch.round(output)
             output = output.int()
             target = target.int()
-            
             iou_metric_val.update(output, target)
             dice_metric_val.update(output, target)
-
     return iou_metric_val.compute(), dice_metric_val.compute()
 
-def train_segmentation(model, train_loader, val_loader, optimizer, loss_criterion, epochs=10, pbar=None):
 
+def train_segmentation(model, train_loader, val_loader, optimizer, loss_criterion, epochs=10, continue_training=''):
+    # ----------------------------------- SETUP -----------------------------------
+    try:
+        pbar.close()
+    except:
+        pass
+    previous_epoch = 0
+
+    try:
+        checkpoint = torch.load('./models/best_segmentation_model.pth')
+        best_model = checkpoint['model']
+        best_criterion = checkpoint['loss']
+        best_optimizer = checkpoint['optimizer']
+        best_model.load_state_dict(checkpoint['model_state_dict'])
+        best_criterion.load_state_dict(checkpoint['criterion_state_dict'])
+        best_optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
+
+        print(f"Found best model, calculating metrics...")
+        best_iou, best_dice = validate_segmentation(best_model, val_loader)
+        print(f'Best model: IoU: {best_iou:.3f}, Dice: {best_dice:.3f}')
+        del best_model, best_optimizer, best_criterion, checkpoint
+    except Exception as e:
+        best_iou = -1
+        print(e)
+        print("No best model found, starting from scratch")
+
+    if continue_training != '':
+        try:
+            checkpoint = torch.load(f'./models/segmentation_model_{continue_training}.pth')
+            model = checkpoint['model']
+            loss_criterion = checkpoint['loss']
+            optimizer = checkpoint['optimizer']
+            model.load_state_dict(checkpoint['model_state_dict'])
+            loss_criterion.load_state_dict(checkpoint['criterion_state_dict'])
+            optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
+            previous_epoch = checkpoint['epoch']
+            epochs += previous_epoch
+
+            del checkpoint
+            print(f"Continuing training of {continue_training} model, checkpoint at epoch {previous_epoch}")
+        except Exception as e:
+            print(e)
+            print(f"No {continue_training} checkpoint found, starting from scratch")
+
+    # ----------------------------------- TRAINING -----------------------------------
     iou_metric_train = BinaryJaccardIndex().to(device)
     dice_metric_train = Dice(num_classes=1, multiclass=False).to(device)
 
-    iou_train = 0
-    dice_train = 0
-    
-    for epoch in range(epochs):
-            train_loss = 0
-            model.train()
-            for data, target in tqdm(train_loader):
-                data, target = data.to(device), target.to(device)
-                optimizer.zero_grad()
-                output = model(data)
-                # output = torch.sigmoid(output)  # DO NOT compute sigmoid because the loss_criterion is BCEWithLogitsLoss (Sigmoid + BCELoss)
-                loss = loss_criterion(output, target.float())
-                loss.backward()
-                optimizer.step()
-                train_loss += loss.item()
-
-                output = torch.sigmoid(output) # Sigmoid for probability
-                output = torch.round(output) # Round to 0 or 1 (torch float)
-                output = output.int() # Convert to int for metrics
-                target = target.int() # Convert to int for metrics
-
-                iou_metric_train.update(output, target)
-                dice_metric_train.update(output, target)
-            
+    for epoch in range(previous_epoch, epochs):
+        print('\n')
+        pbar = tqdm(total=len(train_loader), desc=f"Training - Epoch {epoch}/{epochs}", leave=True)
+        train_loss = 0
+        model.train()
+        for data, target in train_loader:
+            data, target = data.to(device), target.to(device)
+            optimizer.zero_grad()
+            output = model(data)
+            loss = loss_criterion(output, target.float())
+            loss.backward()
+            optimizer.step()
+            train_loss += loss.item()
+            output = torch.sigmoid(output)
+            output = torch.round(output)
+            output = output.int()
+            target = target.int()
+            iou_metric_train.update(output, target)
+            dice_metric_train.update(output, target)
             iou_train = iou_metric_train.compute()
             dice_train = dice_metric_train.compute()
+            pbar.set_description(f"Training - Epoch {epoch}/{epochs}, Loss: {train_loss:.4f}, IoU: {iou_train:.3f}, Dice: {dice_train:.3f}")
+            pbar.update(1)
 
-            model.eval()
-            iou_val, dice_val = validate_segmentation(model, val_loader)
-            if pbar is not None:
-                pbar.set_description(f'Epoch: {epoch + 1} Loss {train_loss:.4f} - Train IoU {iou_train:.3f} Val IoU: {iou_val:.3f}, Train Dice {dice_train:.3f} Val Dice: {dice_val:.3f}')
-                pbar.update(1)
-            else:
-                print(f'Epoch: {epoch + 1} Loss {train_loss:.4f} - Train IoU {iou_train:.3f} Val IoU: {iou_val:.3f}, Train Dice {dice_train:.3f} Val Dice: {dice_val:.3f}')
-    
+        pbar.close()
 
+        model.eval()
+        iou_val, dice_val = validate_segmentation(model, val_loader)
+        
+
+        if iou_val > best_iou:
+            print(f"Saving model with IoU: {iou_val:.3f} > {best_iou:.3f}")
+            best_iou = iou_val
+            torch.save({
+                'epoch': epoch,
+                'model_state_dict': model.state_dict(),
+                'optimizer_state_dict': optimizer.state_dict(),
+                'loss_state_dict': loss_criterion.state_dict(),
+                'model': model,
+                'loss': loss_criterion,
+                'optimizer': optimizer,
+            }, f'./models/best_segmentation_model.pth')
+        torch.save({
+            'epoch': epoch,
+            'model_state_dict': model.state_dict(),
+            'optimizer_state_dict': optimizer.state_dict(),
+            'loss_state_dict': loss_criterion.state_dict(),
+            'model': model,
+            'loss': loss_criterion,
+            'optimizer': optimizer,
+        }, f'./models/segmentation_model_{continue_training}.pth')
 
 # %%
 import segmentation_models_pytorch as smp
@@ -630,7 +669,7 @@ segmentation_model.to(device)
 
 learning_rate = 2e-3
 weight_decay = learning_rate * 0.1 
-epochs = 50
+epochs = 100
 
 optimizer = torch.optim.AdamW(filter(lambda p: p.requires_grad, segmentation_model.parameters()), lr=learning_rate, weight_decay=weight_decay)
 loss_criterion = nn.BCEWithLogitsLoss()
@@ -708,9 +747,7 @@ for image in range(10):
     predicted_label_real_mask = classifier.predict(image = img, mask = mask)[0][0]
     
     
-    img_path = test_segment_ds.img_mask_paths[image][0]
-    
-    real_label = 'benign' if 'benign' in img_path else 'malignant'
+    real_label = 'benign' if 'benign' in test_segment_ds.img_mask_paths[image][0] else 'malignant'
     #predicted_label_real_mask = 'benign' if predicted_label_real_mask == 1 else 'malignant'
     #predicted_label_generated_mask = 'benign' if predicted_label_generated_mask == 1 else 'malignant'
     
@@ -727,9 +764,6 @@ for image in range(10):
     plt.title(f'Predicted mask\npredicted label: {predicted_label_generated_mask}')
     plt.show()
 
-
-# %%
-test_classifier_ds[0][1]
 
 # %%
 from utils import radiomics_features
@@ -776,12 +810,12 @@ parameters = {'kernel':['linear', 'rbf', 'sigmoid', 'poly', 'random_forest'],
               'n_estimators' : (100, 1000, 100),
               'step': 0.3}
 
-#best_model, models = grid_search(train_features = train_data,
-#                    test_features = val_data,   
-#                    train_labels = train_labels,
-#                    test_labels = val_labels,
-#                    params = parameters,
-#                    folds = 5)
+best_model, models = grid_search(train_features = train_data,
+                    test_features = val_data,   
+                    train_labels = train_labels,
+                    test_labels = val_labels,
+                    params = parameters,
+                    folds = 5)
 
 # %%
 from sklearn.metrics import accuracy_score
