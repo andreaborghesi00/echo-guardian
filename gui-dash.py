@@ -17,8 +17,6 @@ from PIL import Image
 
 from NNClassification import NNClassifier
 from UnetSegmenter import UnetSegmenter
-from SimpleNet import SimpleNet
-import SimpleNet as sn
 
 def path_to_indices(path):
     """
