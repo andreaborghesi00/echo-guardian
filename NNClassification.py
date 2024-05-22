@@ -47,7 +47,7 @@ class NNClassifier():
                 image = image.numpy()
                 mask = mask.numpy()
 
-            if image.max() <= 1:
+            if np.max(image) <= 1:
                 image = image * 255
             
             features = self.extract_radiomics(image, mask)
