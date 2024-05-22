@@ -671,6 +671,7 @@ segmentation_model.to(device)
 learning_rate = 3e-4
 weight_decay = learning_rate * 0.05
 epochs = 100
+to_train = False
 
 # Implement Cosine Annealing Learning Rate
 optimizer = torch.optim.AdamW(filter(lambda p: p.requires_grad, segmentation_model.parameters()), lr=learning_rate, weight_decay=weight_decay)
@@ -684,8 +685,8 @@ config.update({
     'weight_decay': weight_decay,
     'epochs': epochs,
 })
-
-train_segmentation(segmentation_model, train_segment_dl, val_segment_dl, optimizer, loss_criterion, scheduler, epochs=epochs)
+if to_train:
+    train_segmentation(segmentation_model, train_segment_dl, val_segment_dl, optimizer, loss_criterion, scheduler, epochs=epochs, continue_training='segmentation_model')
 
 # %%
 iou_test, dice_test, val_loss = validate_segmentation(segmentation_model, test_segment_dl)
@@ -722,9 +723,6 @@ df = pd.concat([df, pd.DataFrame({
 df.to_csv(df_path, index=False)
 
 # %%
-print(df.head(25))
-
-# %%
 from NNClassification import NNClassifier
 from UnetSegmenter import UnetSegmenter
 from PIL import Image
@@ -746,7 +744,7 @@ for image in range(10):
     img = img.squeeze().cpu().numpy() # remove the tensor dimension
     mask = mask.squeeze().cpu().int().numpy()
     
-    predicted_mask = segmenter.predict(image = img)
+    predicted_mask = segmenter.predict(image = img * 255)
     predicted_label_generated_mask = classifier.predict(image = img, mask = predicted_mask)[0][0]
     predicted_label_real_mask = classifier.predict(image = img, mask = mask)[0][0]
     
