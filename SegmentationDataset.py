@@ -67,7 +67,7 @@ class SegmentationDataset(Dataset):
             img = self.scaler.transform(img)
             
         # Do not use the scaler
-        if self.scaler is None:
+        elif self.scaler is None:
             img = cv2.resize(img, (256, 256)) / 255.0
             mask = cv2.resize(mask, (256, 256))
         

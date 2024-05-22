@@ -47,6 +47,9 @@ class NNClassifier():
             if isinstance(image, torch.Tensor):
                 image = image.numpy()
                 mask = mask.numpy()
+
+            if image.max() <= 1:
+                image = image * 255
             
             features = self.extract_radiomics(image, mask)
             features = self.scaler.transform(np.array(features).reshape(1, -1))
