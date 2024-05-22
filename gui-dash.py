@@ -50,7 +50,7 @@ def set_classifier_path(path):
 
 def get_classifier_path():
     if 'classifier_path' not in g:
-        set_classifier_path('./models/best_model.pth')
+        set_classifier_path('models/best_model.pth')
     return g.classifier_path
 
 def get_classifier():
@@ -63,7 +63,7 @@ def set_segmenter_path(path):
 
 def get_segmenter_path():
     if 'segmenter_path' not in g:
-        set_segmenter_path('./models/DeepLabV3Plus_resnet34_lr_0.0001_epochs_100_actual_model.pth')
+        set_segmenter_path('models/DeepLabV3Plus_resnet34_lr_0.0001_epochs_100_actual_model.pth')
     return g.segmenter_path
 
 def get_segmenter():
