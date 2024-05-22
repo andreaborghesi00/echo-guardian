@@ -53,6 +53,10 @@ class UnetSegmenter():
             if not image.max() <= 5:
                 image = image / 255.0
             
+            if image.shape[0] != 256 or image.shape[1] != 256:
+                image = cv2.resize(image, (256, 256))
+                
+            
             image = torch.tensor(image).float().unsqueeze(0).unsqueeze(0).to(self.device)
             
             with torch.no_grad():
@@ -60,5 +64,4 @@ class UnetSegmenter():
                 mask = torch.sigmoid(mask)
                 mask = torch.round(mask)
                 mask = mask.int().squeeze().cpu().numpy()
-            print(type(mask))
             return mask

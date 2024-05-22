@@ -6,7 +6,7 @@
 #       extension: .py
 #       format_name: percent
 #       format_version: '1.3'
-#       jupytext_version: 1.16.1
+#       jupytext_version: 1.16.2
 #   kernelspec:
 #     display_name: Python 3
 #     language: python
@@ -75,6 +75,9 @@ import torch.nn.functional as F
 from torch.utils.data import DataLoader, Dataset
 from RadiomicsDataset import RadiomicsDataset
 from SegmentationDataset import SegmentationDataset
+from albumentations.pytorch import ToTensorV2
+from SimpleNet import SimpleNet
+import segmentation_models_pytorch as smp
 import albumentations as A
 import torchmetrics
 from torchsummary import summary
@@ -84,7 +87,8 @@ from torchvision import transforms
 import cv2
 
 # %% [markdown]
-# # Data loading
+# ----
+# # <center>Data loading
 
 # %%
 path = 'dataset/'
@@ -192,17 +196,12 @@ val_classifier_dl   = DataLoader(val_classifier_ds, batch_size=batch_size, num_w
 # print(np.shape(test_classifier_ds.labels))
 
 # %% [markdown]
-# # Classifiers
-
-# %% [markdown]
-# ## Neural Networks
+# ----
+# # <center>Classifier
 
 # %%
 device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
 print(device)
-
-# %% [markdown]
-# ### Fully-Connected only
 
 # %%
 from torchmetrics.classification import BinaryJaccardIndex
@@ -220,6 +219,7 @@ def validate(model, data_loader):
     macro_acc_metric = Accuracy(task='binary', average='macro').to(device)
     micro_acc_metric = Accuracy(task='binary', average='micro').to(device)
     cm = ConfusionMatrix(task='binary', num_classes=2).to(device)
+    
     
     
     with torch.no_grad():
@@ -344,8 +344,6 @@ def train(model, train_loader, val_loader, optimizer, loss_criterion, epochs=10,
 
 
 # %%
-from SimpleNet import SimpleNet
-
 simple_net = SimpleNet().to(device)
 optimizer = optim.Adam(simple_net.parameters(), lr=1e-3, weight_decay=1e-5)
 loss_criterion = nn.BCELoss()
@@ -353,12 +351,15 @@ to_train = False
 
 if to_train:
     train(model = simple_net, train_loader = train_classifier_dl, val_loader = val_classifier_dl, optimizer = optimizer, loss_criterion = loss_criterion, epochs = 100, continue_training='simple_net')
-    torch.save(simple_net.state_dict(), 'simple_net.pth')
 else:
-    simple_net.load_state_dict(torch.load('simple_net.pth'))
+    simple_net.load_state_dict(torch.load('./models/net_simple_net.pth')['model_state_dict'])
 
 # %% [markdown]
-# # Segmentation
+# ----
+# # <center>Segmentation
+
+# %% [markdown]
+# ## Data preparation
 
 # %%
 import cv2
@@ -395,7 +396,6 @@ for folder in os.listdir(path):
 
 df_segment.index = range(1, len(df_segment) + 1)
 print(df_segment.shape)
-print(df_segment.head())
 
 # %%
 img_mask_paths_segment = [(df_segment['image'].iloc[idx], df_segment['mask'].iloc[idx]) for idx in range(len(df_segment))]
@@ -407,8 +407,6 @@ data_train, data_valtest, label_train, label_valtest = train_test_split(img_mask
 data_val, data_test, label_val, label_test = train_test_split(data_valtest, label_valtest, test_size=0.5, random_state=69420, stratify=label_valtest)
 
 # %%
-from albumentations.pytorch import ToTensorV2
-
 segmentation_train_augmentation = A.Compose([
     A.HorizontalFlip(p=0.5),
     A.VerticalFlip(p=0.5),
@@ -471,6 +469,11 @@ train_segment_dl = DataLoader(train_segment_ds, batch_size=batch_size, shuffle=T
 test_segment_dl = DataLoader(test_segment_ds, batch_size=batch_size, num_workers=8)
 val_segment_dl = DataLoader(val_segment_ds, batch_size=batch_size, num_workers=8)
 
+
+# %% [markdown]
+# ## Train definition
+
+# %%
 
 # %%
 def plot_loss(train_losses, val_losses):
@@ -626,7 +629,6 @@ def train_segmentation(model, train_loader, val_loader, optimizer, loss_criterio
 
 
 # %%
-#PyTorch
 ALPHA = 0.8
 GAMMA = 1
 
@@ -637,7 +639,7 @@ class FocalLoss(nn.Module):
     def forward(self, inputs, targets, alpha=ALPHA, gamma=GAMMA, smooth=1):
         
         #comment out if your model contains a sigmoid or equivalent activation layer
-        inputs = F.sigmoid(inputs)       
+        #inputs = F.sigmoid(inputs)       
         
         #flatten label and prediction tensors
         inputs = inputs.view(-1)
@@ -652,9 +654,27 @@ class FocalLoss(nn.Module):
 
 
 # %%
-import segmentation_models_pytorch as smp
+# from VisionTransformer import VisionTransformer
+# # Usage example
+# transformer_vision = VisionTransformer(
+#     img_size=256,
+#     patch_size=16,
+#     in_chans=1,
+#     embed_dim=768,
+#     depth=12,
+#     n_heads=12,
+#     mlp_ratio=4,
+#     qkv_bias=True,
+#     p=0.,
+#     attn_p=0.,
+# )
 
-# Define your configuration
+# # Forward pass
+# input_image = torch.randn(1, 1, 256, 256)
+# output = model(input_image)
+# print(output.shape)  # Output shape: (1, 1, 256, 256)
+
+# %%
 config = {
     'arch': 'DeepLabV3Plus',
     'encoder_name': 'resnet34',
@@ -665,13 +685,13 @@ config = {
 
 segmentation_model = smp.create_model(**config)
 
-print(device)
+#segmentation_model = transformer_vision
 segmentation_model.to(device)
 
 learning_rate = 3e-4
 weight_decay = learning_rate * 0.05
 epochs = 100
-to_train = False
+to_train = True
 
 # Implement Cosine Annealing Learning Rate
 optimizer = torch.optim.AdamW(filter(lambda p: p.requires_grad, segmentation_model.parameters()), lr=learning_rate, weight_decay=weight_decay)
@@ -722,6 +742,10 @@ df = pd.concat([df, pd.DataFrame({
 # Save the DataFrame
 df.to_csv(df_path, index=False)
 
+# %% [markdown]
+# ----
+# # <center> Test segmentation and classification in tandem
+
 # %%
 from NNClassification import NNClassifier
 from UnetSegmenter import UnetSegmenter
@@ -730,16 +754,41 @@ from PIL import Image
 classifier = NNClassifier('models/best_model.pth')
 segmenter = UnetSegmenter('models/best_segmentation_model.pth')
 
-image = Image.open('dataset/malignant/malignant (1).png').convert('L') # convert to grayscale, dunnno why it's RGB
-mask = Image.open('dataset/malignant/malignant (1)_mask.png') # this is already grayscale for some vooodoo reason
+
+# test of the classifier and segmenter by opening an image and mask from file
+image = Image.open('dataset/malignant/malignant (1).png').convert('L')
+mask = Image.open('dataset/malignant/malignant (1)_mask.png')
 prediction = classifier.predict(image = image, mask = mask)
 masked_prediction = segmenter.predict(image = image)
 plt.imshow(masked_prediction)
 image.close()
 mask.close()
 
+print(prediction[0][0].cpu().numpy())
+
 # %%
-for image in range(10):
+import json
+import re
+from sklearn.metrics import accuracy_score
+from sklearn.metrics import confusion_matrix
+import seaborn as sns
+import matplotlib.pyplot as plt
+import numpy as np
+
+
+i = 0
+real_labels = []
+predicted_labels = []
+predicted_labels_generated_mask = []
+
+for image in range(len(test_segment_ds)):
+    with open('excludedImages.json', 'r') as f:
+        json_exclude_path = json.load(f)
+        if 'benign' in test_segment_ds.img_mask_paths[image][1] and int(re.findall(r'\d+', test_segment_ds.img_mask_paths[image][1])[0]) in json_exclude_path['cnn']['benign']:
+            continue
+        elif 'malignant' in test_segment_ds.img_mask_paths[image][1] and int(re.findall(r'\d+', test_segment_ds.img_mask_paths[image][1])[0]) in json_exclude_path['cnn']['malignant']:
+            continue
+    i += 1
     img, mask = test_segment_ds[image]
     img = img.squeeze().cpu().numpy() # remove the tensor dimension
     mask = mask.squeeze().cpu().int().numpy()
@@ -748,11 +797,13 @@ for image in range(10):
     predicted_label_generated_mask = classifier.predict(image = img, mask = predicted_mask)[0][0]
     predicted_label_real_mask = classifier.predict(image = img, mask = mask)[0][0]
     
-    
     real_label = 'benign' if 'benign' in test_segment_ds.img_mask_paths[image][0] else 'malignant'
-    #predicted_label_real_mask = 'benign' if predicted_label_real_mask == 1 else 'malignant'
-    #predicted_label_generated_mask = 'benign' if predicted_label_generated_mask == 1 else 'malignant'
+    predicted_label_real_mask_l = 'benign' if np.round(predicted_label_real_mask.cpu()) == 0 else 'malignant'
+    predicted_label_generated_mask_l = 'benign' if np.round(predicted_label_generated_mask.cpu()) == 0 else 'malignant'
     
+    real_labels.append(1 if real_label == 'malignant' else 0)
+    predicted_labels.append(predicted_label_real_mask.cpu())
+    predicted_labels_generated_mask.append(predicted_label_generated_mask.cpu())
     
     plt.figure(figsize=(10, 10))
     plt.subplot(1, 3, 1)
@@ -760,37 +811,35 @@ for image in range(10):
     plt.title(f'Image real\nreal label: {real_label}')
     plt.subplot(1, 3, 2)
     plt.imshow(mask, cmap='gray')
-    plt.title(f'Mask ground truth\npredicted label: {predicted_label_real_mask}')
+    plt.title(f'Mask ground truth\npredicted label: {predicted_label_real_mask_l}\n p = {predicted_label_real_mask :.2f}')
     plt.subplot(1, 3, 3)
     plt.imshow(predicted_mask, cmap='gray')
-    plt.title(f'Predicted mask\npredicted label: {predicted_label_generated_mask}')
+    plt.title(f'Predicted mask\npredicted label: {predicted_label_generated_mask_l}\n p = {predicted_label_generated_mask:.2f}')
     plt.show()
 
 
-# %%
-from utils import radiomics_features
+print(f'Accuracy with real mask: {accuracy_score(real_labels, np.round(predicted_labels))}')
 
-# this isn't needed anymore, we have the classes now, plus radiomics_features didn't rescale the features
-for image in range(20):
-    img_path = test_segment_ds.img_mask_paths[image][0]
-    typ = 'malignant' if 'malignant' in img_path else 'benign'
-    img, _ = test_segment_ds[image]
-    img = img.to(device)
-    img = img.unsqueeze(0)  # Add a batch dimension
-    mask = torch.round(torch.sigmoid(segmentation_model(img))).int()  # Convert to integer tensor
-    
-    
-    features = radiomics_features(img.squeeze(0), mask.squeeze(0))
-    simple_net_input = torch.tensor(features).float().to(device)
-    
-    simple_net.eval()
-    with torch.no_grad():
-        output = simple_net(simple_net_input.unsqueeze(0)) 
-        output = torch.round(output).cpu().numpy()[0][0]
-        print(f'predicted : {"malignant" if output == 0 else "benign"}, ground truth: {typ}')
+cm = confusion_matrix(real_labels, np.round(predicted_labels))
+sns.heatmap(cm, annot=True, fmt='g', cmap='Blues')
+plt.xlabel('Predicted')
+plt.ylabel('True')
+plt.show()
+
+print(f'Accuracy with generated mask: {accuracy_score(real_labels, np.round(predicted_labels_generated_mask))}')
+
+cm = confusion_matrix(real_labels, np.round(predicted_labels_generated_mask))
+sns.heatmap(cm, annot=True, fmt='g', cmap='Blues')
+plt.xlabel('Predicted')
+plt.ylabel('True')
+plt.show()
+
+
+
 
 # %% [markdown]
-# # Random Forests and SVM:
+# ----
+# # <center>Random Forests and SVM:
 
 # %%
 train_data = np.array([train_classifier_ds.__getitem__(idx)[0].numpy() for idx in range(len(train_classifier_ds))])

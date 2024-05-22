@@ -49,6 +49,12 @@ class NNClassifier():
 
             if np.max(image) <= 1:
                 image = image * 255
+            if np.max(mask) <= 1:
+                mask = mask * 255
+            
+            image = cv2.resize(np.array(image), (256, 256))
+            mask = cv2.resize(mask, (256, 256), interpolation=cv2.INTER_NEAREST)
+
             
             features = self.extract_radiomics(image, mask)
             features = self.scaler.transform(np.array(features).reshape(1, -1))
@@ -59,12 +65,6 @@ class NNClassifier():
     
     @staticmethod
     def extract_radiomics(image, mask):
-        print(f"img type: {type(image)}, mask type: {type(mask)}")
-        image = np.array(image)
-        mask = np.array(mask)
-
-        image = cv2.resize(image, (256, 256))
-
         if image.shape != mask.shape:
             raise ValueError(f"Image and mask must have the same shape: image shape is {image.shape}, mask shape is {mask.shape}")
         if not isinstance(image, np.ndarray):
@@ -109,6 +109,6 @@ class NNClassifier():
         sitk_mask = sitk.GetImageFromArray(mask.astype(float))
         
         
-        features = extractor.execute(sitk_image, sitk_mask, voxelBased=False, label=1)
+        features = extractor.execute(sitk_image, sitk_mask, voxelBased=False, label=255)
         features_values = [float(features[key]) for key in features if key.startswith('original_')]
         return features_values
