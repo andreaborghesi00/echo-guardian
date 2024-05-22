@@ -6,7 +6,7 @@ import radiomics
 import pickle
 import torchvision.transforms as transforms
 import SimpleITK as sitk
-
+import cv2
 
 class NNClassifier():
     def __init__(self, model_path='model.pth'):
@@ -14,7 +14,6 @@ class NNClassifier():
         self.scaler = pickle.load(open('./models/scaler_classification.pkl', 'rb'))
 
     def load_model(self, model_path):
-        
         checkpoint = torch.load(model_path)
         self.model = checkpoint['model']
         self.model.load_state_dict(checkpoint['model_state_dict'])
@@ -60,8 +59,14 @@ class NNClassifier():
     
     @staticmethod
     def extract_radiomics(image, mask):
+        print(f"img type: {type(image)}, mask type: {type(mask)}")
+        image = np.array(image)
+        mask = np.array(mask)
+
+        image = cv2.resize(image, (256, 256))
+
         if image.shape != mask.shape:
-            raise ValueError("Image and mask must have the same shape")
+            raise ValueError(f"Image and mask must have the same shape: image shape is {image.shape}, mask shape is {mask.shape}")
         if not isinstance(image, np.ndarray):
             raise TypeError("Image must be a numpy array")
         radiomics.logger.setLevel(40)

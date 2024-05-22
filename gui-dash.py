@@ -1,6 +1,7 @@
 import numpy as np
 from scipy import ndimage
 from skimage import data, draw
+import cv2 as cv
 
 import dash
 from dash import Dash, dcc, html, Input, Output, State, no_update, callback, ctx
@@ -16,6 +17,8 @@ from PIL import Image
 
 from NNClassification import NNClassifier
 from UnetSegmenter import UnetSegmenter
+from SimpleNet import SimpleNet
+import SimpleNet as sn
 
 def path_to_indices(path):
     """
@@ -174,7 +177,7 @@ app.layout = html.Div([
 def on_new_annotation(relayout_data, image):
     if "shapes" in relayout_data:
         last_shape = relayout_data["shapes"][-1]
-        mask_numpy= path_to_mask(last_shape["path"], image.shape)
+        mask_numpy= path_to_mask(last_shape["path"], np.array(image).shape)
         return mask_numpy
     else:
         raise PreventUpdate
@@ -184,6 +187,7 @@ def on_new_annotation(relayout_data, image):
     Output("ultrasound-image", "figure"),
     Output("image-store", "data"),
     Output("segmenter-image", "figure"),
+    Output("segmenter-store", "data"),
     Input("upload-data", "contents"),
     State("upload-data", "filename"),
     prevent_initial_call=True,
@@ -201,6 +205,7 @@ def on_upload_data(contents, filenames):
 
             img = Image.open(image_data).convert("L")
             numpy_image = np.array(img)
+            numpy_image = cv.resize(numpy_image, (256, 256))
             mask = predict_roi(numpy_image)
             fig_masks.append(px.imshow(mask))
 
@@ -212,7 +217,7 @@ def on_upload_data(contents, filenames):
         if not figures:
             return px.imshow(np.zeros((1, 1)))
 
-        return figures[0], numpy_image, fig_masks[0]
+        return figures[0], numpy_image, fig_masks[0], mask
     raise PreventUpdate
 
 @callback(
@@ -238,11 +243,12 @@ def on_predict(n_clicks_classify, n_clicks_classify_segmenter, image, mask, segm
         if image is None:
             return "Please upload an image before predicting."
         else:
-            try:
-                class_pred = predict_class(image, segmenter_mask)
-                return f"Predicted class with segmenter ROI: {class_pred}"
-            except Exception as e:
-                return f"Error: {str(e)}"
+            # try:
+            class_pred = predict_class(image, segmenter_mask).cpu().numpy()[0][0]
+            
+            return f'Predicted class with segmenter ROI:\n {f"Malignant {class_pred*100:.2f}%" if np.round(class_pred) == 1 else f"Benign {(1-class_pred)*100:.2f}%"}'
+            # except Exception as e:
+            #     return f"Error: {str(e)}"
 
 if __name__ == "__main__":
     app.run(debug=True)

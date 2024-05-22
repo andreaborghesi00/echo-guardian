@@ -201,60 +201,8 @@ val_classifier_dl   = DataLoader(val_classifier_ds, batch_size=batch_size, num_w
 device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
 print(device)
 
-
 # %% [markdown]
 # ### Fully-Connected only
-
-# %%
-class SimpleNet(nn.Module):
-    def __init__(self):
-        super(SimpleNet, self).__init__()
-        self.fc1 = nn.Linear(101, 512)
-        self.fc2 = nn.Linear(512, 128)
-        self.fc3 = nn.Linear(128, 16)
-        self.fc4 = nn.Linear(16, 1) # 2 classes
-        self.dropout = nn.Dropout(p=0.5)
-        self.batchnorm1 = nn.BatchNorm1d(512)
-        self.batchnorm2 = nn.BatchNorm1d(128)
-        self.batchnorm3 = nn.BatchNorm1d(16)
-
-    def forward(self, x):
-        x = F.leaky_relu(self.batchnorm1(self.fc1(x)))
-        x = self.dropout(x)
-        x = F.leaky_relu(self.batchnorm2(self.fc2(x)))
-        x = self.dropout(x)
-        x = F.leaky_relu(self.batchnorm3(self.fc3(x)))
-        x = self.fc4(x)
-        return torch.sigmoid(x)
-    
-class RadiomicsNet(nn.Module):
-    def __init__(self, input_size=101, hidden_size=1024, num_layers=4, dropout_rate=0.5):
-        super(RadiomicsNet, self).__init__()
-        self.input_size = input_size
-        self.hidden_size = hidden_size
-        self.num_layers = num_layers
-        self.dropout_rate = dropout_rate
-
-        self.layers = nn.ModuleList()
-        self.layers.append(nn.Linear(input_size, hidden_size))
-        self.layers.append(nn.BatchNorm1d(hidden_size))
-        self.layers.append(nn.LeakyReLU())
-        self.layers.append(nn.Dropout(dropout_rate))
-
-        for i in range(num_layers - 1):
-            self.layers.append(nn.Linear(hidden_size // (2**i), hidden_size // (2**(i + 1)) ))
-            self.layers.append(nn.BatchNorm1d(hidden_size // (2**(i + 1)) ))
-            self.layers.append(nn.LeakyReLU())
-            self.layers.append(nn.Dropout(dropout_rate))
-
-        self.output_layer = nn.Linear(hidden_size // (2**(num_layers - 1)), 2)
-
-    def forward(self, x):
-        for layer in self.layers:
-            x = layer(x)
-        x = self.output_layer(x)
-        return F.leaky_relu(x)
-
 
 # %%
 from torchmetrics.classification import BinaryJaccardIndex
@@ -396,6 +344,7 @@ def train(model, train_loader, val_loader, optimizer, loss_criterion, epochs=10,
 
 
 # %%
+from SimpleNet import SimpleNet
 
 simple_net = SimpleNet().to(device)
 optimizer = optim.Adam(simple_net.parameters(), lr=1e-3, weight_decay=1e-5)
