@@ -466,24 +466,19 @@ segmentation_train_augmentation = A.Compose([
     A.Transpose(p=0.5),
     A.ShiftScaleRotate(shift_limit=0.1, scale_limit=0.2, rotate_limit=25, p=0.5),
     A.RandomGamma(p=0.5),
-    A.GaussNoise(var_limit=(5, 20), p=0.5),
+    A.GaussNoise(var_limit=(5/255, 20/255), p=0.5),
     A.Blur(blur_limit=7, p=0.5),
-    A.Normalize(normalization='min_max'),
     ToTensorV2(),
-    
 ])
 
 # pytorch transforms
 segmentation_valtest_transform = A.Compose([
-    A.Normalize(normalization='min_max'),
     ToTensorV2(),
 ])
 
-
-
 # %%
 # Create and save or load the dataloaders
-batch_size = 16
+batch_size = 24
 force_dataset_creation = True
 data_dir = 'data'
 
@@ -505,19 +500,19 @@ else:
                                     transform=segmentation_train_augmentation,
                                     json_exclude_path='excludedImages.json',
                                     exclusion_class='cnn',
-                                    scaler = MinMaxScaler())
+                                    scaler = None)
     
     val_segment_ds = SegmentationDataset(data_val, label_val,
                                     transform=segmentation_valtest_transform,
                                     json_exclude_path='excludedImages.json',
                                     exclusion_class='cnn',
-                                    scaler = train_segment_ds.scaler)
+                                    scaler = None)
     
     test_segment_ds = SegmentationDataset(data_test, label_test,
                                     transform=segmentation_valtest_transform,
                                     json_exclude_path='excludedImages.json',
                                     exclusion_class='cnn',
-                                    scaler = train_segment_ds.scaler)
+                                    scaler = None)
     torch.save(train_segment_ds, train_segment_ds_path)
     torch.save(test_segment_ds, test_segment_ds_path)
     torch.save(val_segment_ds, val_segment_ds_path)
@@ -526,6 +521,19 @@ else:
 train_segment_dl = DataLoader(train_segment_ds, batch_size=batch_size, shuffle=True, num_workers=8)
 test_segment_dl = DataLoader(test_segment_ds, batch_size=batch_size, num_workers=8)
 val_segment_dl = DataLoader(val_segment_ds, batch_size=batch_size, num_workers=8)
+
+
+# %%
+def plot_loss(train_losses, val_losses):
+    plt.figure(figsize=(10, 5))
+    plt.plot(train_losses, label='Training Loss')
+    plt.plot(val_losses, label='Validation Loss')
+    plt.xlabel('Epochs')
+    plt.ylabel('Loss')
+    plt.title(f"Loss - {config}")
+    plt.legend()
+    plt.show()
+
 
 # %%
 from functools import wraps
@@ -537,20 +545,23 @@ from torchmetrics.classification import BinaryJaccardIndex, Dice
 def validate_segmentation(model, data_loader):
     iou_metric_val = BinaryJaccardIndex().to(device)
     dice_metric_val = Dice(num_classes=1, multiclass=False).to(device)
+    val_loss = 0
     with torch.no_grad():
         for data, target in data_loader:
             data, target = data.to(device), target.to(device)
             output = model(data)
+            loss = loss_criterion(output, target.float())
+            val_loss += loss.item()
             output = torch.sigmoid(output)
             output = torch.round(output)
             output = output.int()
             target = target.int()
             iou_metric_val.update(output, target)
             dice_metric_val.update(output, target)
-    return iou_metric_val.compute(), dice_metric_val.compute()
+    return iou_metric_val.compute(), dice_metric_val.compute(), val_loss
 
 
-def train_segmentation(model, train_loader, val_loader, optimizer, loss_criterion, epochs=10, continue_training=''):
+def train_segmentation(model, train_loader, val_loader, optimizer, loss_criterion, scheduler, epochs=10, continue_training=''):
     # ----------------------------------- SETUP -----------------------------------
     try:
         pbar.close()
@@ -564,7 +575,7 @@ def train_segmentation(model, train_loader, val_loader, optimizer, loss_criterio
         best_criterion = checkpoint['loss']
         best_optimizer = checkpoint['optimizer']
         best_model.load_state_dict(checkpoint['model_state_dict'])
-        best_criterion.load_state_dict(checkpoint['criterion_state_dict'])
+        best_criterion.load_state_dict(checkpoint['loss_state_dict'])
         best_optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
 
         print(f"Found best model, calculating metrics...")
@@ -598,9 +609,12 @@ def train_segmentation(model, train_loader, val_loader, optimizer, loss_criterio
     iou_metric_train = BinaryJaccardIndex().to(device)
     dice_metric_train = Dice(num_classes=1, multiclass=False).to(device)
 
+    train_losses = []
+    val_losses = []
+
     for epoch in range(previous_epoch, epochs):
         print('\n')
-        pbar = tqdm(total=len(train_loader), desc=f"Training - Epoch {epoch}/{epochs}", leave=True)
+        pbar = tqdm(total=epochs, desc=f"Training - Epoch {epoch}/{epochs}", leave=True, unit='epoch')
         train_loss = 0
         model.train()
         for data, target in train_loader:
@@ -617,16 +631,27 @@ def train_segmentation(model, train_loader, val_loader, optimizer, loss_criterio
             target = target.int()
             iou_metric_train.update(output, target)
             dice_metric_train.update(output, target)
-            iou_train = iou_metric_train.compute()
-            dice_train = dice_metric_train.compute()
-            pbar.set_description(f"Training - Epoch {epoch}/{epochs}, Loss: {train_loss:.4f}, IoU: {iou_train:.3f}, Dice: {dice_train:.3f}")
-            pbar.update(1)
 
-        pbar.close()
+        iou_train = iou_metric_train.compute()
+        dice_train = dice_metric_train.compute()
+        iou_metric_train.reset()
+        dice_metric_train.reset()
+
+        scheduler.step()
 
         model.eval()
-        iou_val, dice_val = validate_segmentation(model, val_loader)
-        
+        iou_val, dice_val, val_loss = validate_segmentation(model, val_loader)
+
+        # Plot the loss
+        train_losses.append(train_loss)
+        val_losses.append(val_loss)
+        if (epoch + 1) % 25 == 0:
+            # Plot the loss
+            plot_loss(train_losses, val_losses)
+
+        pbar.set_description(f"Training - Epoch {epoch}/{epochs}, Loss: {train_loss:.4f} | Train IoU: {iou_train:.3f} - Val IoU {iou_val:.3f} | Train Dice: {dice_train:.3f} - Val Dice {dice_val:.3f}")
+        pbar.update(1)
+        pbar.close()
 
         if iou_val > best_iou:
             print(f"Saving model with IoU: {iou_val:.3f} > {best_iou:.3f}")
@@ -650,13 +675,40 @@ def train_segmentation(model, train_loader, val_loader, optimizer, loss_criterio
             'optimizer': optimizer,
         }, f'./models/segmentation_model_{continue_training}.pth')
 
+
+# %%
+#PyTorch
+ALPHA = 0.8
+GAMMA = 1
+
+class FocalLoss(nn.Module):
+    def __init__(self, weight=None, size_average=True):
+        super(FocalLoss, self).__init__()
+
+    def forward(self, inputs, targets, alpha=ALPHA, gamma=GAMMA, smooth=1):
+        
+        #comment out if your model contains a sigmoid or equivalent activation layer
+        inputs = F.sigmoid(inputs)       
+        
+        #flatten label and prediction tensors
+        inputs = inputs.view(-1)
+        targets = targets.view(-1)
+        
+        #first compute binary cross-entropy 
+        BCE = F.binary_cross_entropy(inputs, targets, reduction='mean')
+        BCE_EXP = torch.exp(-BCE)
+        focal_loss = alpha * (1-BCE_EXP)**gamma * BCE
+                       
+        return focal_loss
+
+
 # %%
 import segmentation_models_pytorch as smp
 
 # Define your configuration
 config = {
     'arch': 'DeepLabV3Plus',
-    'encoder_name': 'resnet18',
+    'encoder_name': 'resnet34',
     'encoder_weights': 'imagenet',
     'in_channels': 1,
     'classes': 1,
@@ -667,12 +719,15 @@ segmentation_model = smp.create_model(**config)
 print(device)
 segmentation_model.to(device)
 
-learning_rate = 2e-3
-weight_decay = learning_rate * 0.1 
+learning_rate = 3e-4
+weight_decay = learning_rate * 0.05
 epochs = 100
 
+# Implement Cosine Annealing Learning Rate
 optimizer = torch.optim.AdamW(filter(lambda p: p.requires_grad, segmentation_model.parameters()), lr=learning_rate, weight_decay=weight_decay)
-loss_criterion = nn.BCEWithLogitsLoss()
+scheduler = torch.optim.lr_scheduler.CosineAnnealingWarmRestarts(optimizer, T_0=int(epochs/4), T_mult=2, eta_min=learning_rate/10)
+# loss_criterion = nn.BCEWithLogitsLoss()
+loss_criterion = FocalLoss()
 
 config.update({
     'optimizer': 'AdamW',
@@ -681,10 +736,10 @@ config.update({
     'epochs': epochs,
 })
 
-train_segmentation(segmentation_model, train_segment_dl, val_segment_dl, optimizer, loss_criterion, epochs=epochs)
+train_segmentation(segmentation_model, train_segment_dl, val_segment_dl, optimizer, loss_criterion, scheduler, epochs=epochs)
 
 # %%
-iou_test, dice_test = validate_segmentation(segmentation_model, test_segment_dl)
+iou_test, dice_test, val_loss = validate_segmentation(segmentation_model, test_segment_dl)
 print(f'Test IoU: {iou_test:.3f}, Test Dice: {dice_test:.3f}')
 
 # %%
@@ -715,7 +770,7 @@ df = pd.concat([df, pd.DataFrame({
 })])
 
 # Save the DataFrame
-df.to_csv(df_path, index=True)
+df.to_csv(df_path, index=False)
 
 # %%
 print(df.head(25))
@@ -726,7 +781,7 @@ from UnetSegmenter import UnetSegmenter
 from PIL import Image
 
 classifier = NNClassifier('models/best_model.pth')
-segmenter = UnetSegmenter('models/net_segment.pth')
+segmenter = UnetSegmenter('models/best_segmentation_model.pth')
 
 image = Image.open('dataset/malignant/malignant (1).png').convert('L') # convert to grayscale, dunnno why it's RGB
 mask = Image.open('dataset/malignant/malignant (1)_mask.png') # this is already grayscale for some vooodoo reason

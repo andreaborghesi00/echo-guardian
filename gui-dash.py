@@ -61,7 +61,7 @@ def set_segmenter_path(path):
 
 def get_segmenter_path():
     if 'segmenter_path' not in g:
-        set_segmenter_path('model.pth')
+        set_segmenter_path('models/DeepLabV3Plus_resnet34_lr_0.0001_epochs_50_model.pth')
     return g.segmenter_path
 
 def get_segmenter():

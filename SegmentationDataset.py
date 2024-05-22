@@ -44,7 +44,6 @@ class SegmentationDataset(Dataset):
                     
                     self.scaler.partial_fit(img)
                 pickle.dump(self.scaler, open('./models/scaler_segmentation.pkl', 'wb'))
-            
         
     def __len__(self):
         return len(self.img_mask_paths)
@@ -59,7 +58,7 @@ class SegmentationDataset(Dataset):
         mask = mask.astype(np.uint8)
         
         # check if mask max value is 255, if not, normalize it
-        if mask.max() > 2:
+        if mask.max() > 1:
             mask = mask / 255.0
         
         if self.scaler is not None:
@@ -67,6 +66,10 @@ class SegmentationDataset(Dataset):
             mask = cv2.resize(mask, (256, 256))
             img = self.scaler.transform(img)
             
+        # Do not use the scaler
+        if self.scaler is None:
+            img = cv2.resize(img, (256, 256)) / 255.0
+            mask = cv2.resize(mask, (256, 256))
         
         if self.transform:
             augmented = self.transform(image=img, mask=mask)
