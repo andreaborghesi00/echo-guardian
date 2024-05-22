@@ -7,7 +7,7 @@ import cv2
 
 
 class UnetSegmenter():
-    def __init__(self, model_path='model.pth'):
+    def __init__(self, model_path='DeepLabV3Plus_resnet34_lr_0.0001_epochs_100_actual_model.pth'):
         self.load_model(model_path)
         self.scaler = pickle.load(open('./models/scaler_segmentation.pkl', 'rb'))
 
@@ -20,6 +20,9 @@ class UnetSegmenter():
             self.device = torch.device("cuda")
         else:
             self.device = torch.device("cpu")
+        
+        self.model.eval()
+        self.model.to(self.device)
     
     def predict(self, image):
             """
@@ -45,23 +48,17 @@ class UnetSegmenter():
             if isinstance(image, Image.Image):
                 image = np.array(image)
                 image = np.uint8(image)
-            
-            image = cv2.resize(image, (256, 256))
-            
+                        
             # 5 is a value that should not be reached by the image if it is already scaled, so we can use it as a flag to not scale the image
             if not image.max() <= 5:
-                image = self.scaler.transform(image)
+                image = image / 255.0
             
             image = torch.tensor(image).float().unsqueeze(0).unsqueeze(0).to(self.device)
-            
-            
-            
-            self.model.eval()
             
             with torch.no_grad():
                 mask = self.model(image)
                 mask = torch.sigmoid(mask)
                 mask = torch.round(mask)
                 mask = mask.int().squeeze().cpu().numpy()
-                
+            print(type(mask))
             return mask
