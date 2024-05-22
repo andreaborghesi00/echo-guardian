@@ -474,8 +474,6 @@ val_segment_dl = DataLoader(val_segment_ds, batch_size=batch_size, num_workers=8
 # ## Train definition
 
 # %%
-
-# %%
 def plot_loss(train_losses, val_losses):
     plt.figure(figsize=(10, 5))
     plt.plot(train_losses, label='Training Loss')
@@ -639,7 +637,7 @@ class FocalLoss(nn.Module):
     def forward(self, inputs, targets, alpha=ALPHA, gamma=GAMMA, smooth=1):
         
         #comment out if your model contains a sigmoid or equivalent activation layer
-        #inputs = F.sigmoid(inputs)       
+        inputs = F.sigmoid(inputs)       
         
         #flatten label and prediction tensors
         inputs = inputs.view(-1)
@@ -654,27 +652,98 @@ class FocalLoss(nn.Module):
 
 
 # %%
-# from VisionTransformer import VisionTransformer
-# # Usage example
+class DiceLoss(nn.Module):
+    def __init__(self, smooth=1e-6):
+        super(DiceLoss, self).__init__()
+        self.smooth = smooth
+
+    def forward(self, inputs, targets):
+        # Apply sigmoid to the inputs to get probabilities
+        inputs = torch.sigmoid(inputs)
+        
+        # Flatten the inputs and targets
+        inputs = inputs.view(-1)
+        targets = targets.view(-1)
+        
+        # Compute the intersection and union
+        intersection = (inputs * targets).sum()
+        union = inputs.sum() + targets.sum()
+        
+        # Compute the Dice coefficient
+        dice_coeff = (2. * intersection + self.smooth) / (union + self.smooth)
+        
+        # Compute the Dice loss
+        dice_loss = 1 - dice_coeff
+        
+        return dice_loss
+
+
+# %%
+from VisionTransformer import VisionTransformer, TransformerEncoder, TransformerUNet
+# Usage example
 # transformer_vision = VisionTransformer(
 #     img_size=256,
 #     patch_size=16,
 #     in_chans=1,
-#     embed_dim=768,
-#     depth=12,
-#     n_heads=12,
+#     embed_dim=1024,  # Increase the embedding dimension
+#     depth=16,  # Increase the number of transformer blocks
+#     n_heads=16,  # Adjust the number of attention heads accordingly
 #     mlp_ratio=4,
 #     qkv_bias=True,
 #     p=0.,
 #     attn_p=0.,
 # )
 
-# # Forward pass
-# input_image = torch.randn(1, 1, 256, 256)
-# output = model(input_image)
-# print(output.shape)  # Output shape: (1, 1, 256, 256)
+#Forward pass
+#transformer_vision.to(device)
+#input_image = torch.randn(1, 1, 256, 256).to(device)
+#output = transformer_vision(input_image)
+#print(output.shape)  # Output shape: (1, 1, 256, 256)
+
+
+
+# Create the Transformer encoder
+encoder = TransformerEncoder(
+    img_size=256,
+    patch_size=16,
+    in_chans=1,
+    embed_dim=768,
+    depth=12,
+    n_heads=12,
+    mlp_ratio=4,
+    qkv_bias=True,
+    p=0.,
+    attn_p=0.,
+)
+
+config = {
+    'arch': 'DeepLabV3Plus',
+    'encoder_name': 'resnet34',
+    'encoder_weights': 'imagenet',
+    'in_channels': 1,
+    'classes': 1,
+    'img_size': 256,
+    'patch_size': 16,
+    'embed_dim': 768,
+    'depth': 12,
+    'n_heads': 12,
+    'mlp_ratio': 4,
+    'qkv_bias': True,
+    'p': 0.,
+    'attn_p': 0.,
+}
+# Create the Transformer U-Net model
+#transformer_vision = TransformerUNet(encoder, out_chans=1)
+transformer_vision = TransformerUNet(config)
+
+transformer_vision.to(device)
 
 # %%
+import torch.optim as optim
+from torch.optim.lr_scheduler import OneCycleLR
+from ranger21 import Ranger21
+#import optuna
+
 config = {
     'arch': 'DeepLabV3Plus',
     'encoder_name': 'resnet34',
@@ -683,21 +752,49 @@ config = {
     'classes': 1,
 }
 
-segmentation_model = smp.create_model(**config)
+#segmentation_model = smp.create_model(**config)
+segmentation_model = transformer_vision
 
-#segmentation_model = transformer_vision
 segmentation_model.to(device)
 
 learning_rate = 3e-4
 weight_decay = learning_rate * 0.05
-epochs = 100
+epochs = 200
 to_train = True
 
 # Implement Cosine Annealing Learning Rate
-optimizer = torch.optim.AdamW(filter(lambda p: p.requires_grad, segmentation_model.parameters()), lr=learning_rate, weight_decay=weight_decay)
-scheduler = torch.optim.lr_scheduler.CosineAnnealingWarmRestarts(optimizer, T_0=int(epochs/4), T_mult=2, eta_min=learning_rate/10)
-# loss_criterion = nn.BCEWithLogitsLoss()
-loss_criterion = FocalLoss()
+#optimizer = torch.optim.AdamW(filter(lambda p: p.requires_grad, segmentation_model.parameters()), lr=learning_rate, weight_decay=weight_decay)
+#scheduler = torch.optim.lr_scheduler.CosineAnnealingWarmRestarts(optimizer, T_0=int(epochs/4), T_mult=2, eta_min=learning_rate/10)
+#scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=epochs, eta_min=learning_rate/10)
+
+# Update optimizer to Ranger
+num_batches_per_epoch = len(train_segment_dl)
+
+# Advanced optimizer and scheduler
+optimizer = Ranger21(
+    transformer_vision.parameters(),
+    lr=learning_rate,
+    weight_decay=weight_decay,
+    num_epochs=epochs,
+    num_batches_per_epoch=num_batches_per_epoch
+)
+
+# Implement OneCycleLR scheduler
+scheduler = OneCycleLR(optimizer, max_lr=learning_rate, steps_per_epoch=len(train_segment_dl), epochs=epochs)
+
+# Regularization in the transformer blocks and decoder layers
+for block in transformer_vision.encoder.blocks:
+    block.mlp.add_module('dropout', nn.Dropout(p=0.1))
+
+for layer in transformer_vision.decoder:
+    if isinstance(layer, nn.Sequential):
+        layer.add_module('dropout', nn.Dropout(p=0.1))
+
+loss_criterion = nn.BCEWithLogitsLoss()
+#loss_criterion = FocalLoss()
+# use the dice loss
+#loss_criterion = DiceLoss()
+
 
 config.update({
     'optimizer': 'AdamW',
@@ -706,7 +803,7 @@ config.update({
     'epochs': epochs,
 })
 if to_train:
-    train_segmentation(segmentation_model, train_segment_dl, val_segment_dl, optimizer, loss_criterion, scheduler, epochs=epochs, continue_training='segmentation_model')
+    train_segmentation(segmentation_model, train_segment_dl, val_segment_dl, optimizer, loss_criterion, scheduler, epochs=epochs, continue_training='')
 
 # %%
 iou_test, dice_test, val_loss = validate_segmentation(segmentation_model, test_segment_dl)
@@ -752,7 +849,7 @@ from UnetSegmenter import UnetSegmenter
 from PIL import Image
 
 classifier = NNClassifier('models/best_model.pth')
-segmenter = UnetSegmenter('models/best_segmentation_model.pth')
+segmenter = UnetSegmenter('models/best_segmentation_model.pth') 
 
 
 # test of the classifier and segmenter by opening an image and mask from file

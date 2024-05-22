@@ -167,62 +167,341 @@ class VisionTransformer(nn.Module):
 
         return x
     
-# -------------------------------------------------------------------------------------------------------------------- #
+# -------------------------------------------------------------------------------------------------------------------- # FIRST VERSION
+
+# class TransformerEncoder(nn.Module):
+#     def __init__(
+#         self,
+#         img_size=256,
+#         patch_size=16,
+#         in_chans=1,
+#         embed_dim=768,
+#         depth=12,
+#         n_heads=12,
+#         mlp_ratio=4.0,
+#         qkv_bias=True,
+#         p=0.,
+#         attn_p=0.,
+#     ):
+#         super().__init__()
+
+#         self.patch_embed = PatchEmbed(
+#             img_size=img_size,
+#             patch_size=patch_size,
+#             in_chans=in_chans,
+#             embed_dim=embed_dim,
+#         )
+#         self.pos_embed = nn.Parameter(
+#             torch.zeros(1, self.patch_embed.n_patches, embed_dim)
+#         )
+#         self.pos_drop = nn.Dropout(p=p)
+
+#         self.blocks = nn.ModuleList(
+#             [
+#                 Block(
+#                     dim=embed_dim,
+#                     n_heads=n_heads,
+#                     mlp_ratio=mlp_ratio,
+#                     qkv_bias=qkv_bias,
+#                     p=p,
+#                     attn_p=attn_p,
+#                 )
+#                 for _ in range(depth)
+#             ]
+#         )
+
+#         self.norm = nn.LayerNorm(embed_dim, eps=1e-6)
+
+#     def forward(self, x):
+#         x = self.patch_embed(x)
+#         x = x + self.pos_embed
+#         x = self.pos_drop(x)
+
+#         for block in self.blocks:
+#             x = block(x)
+
+#         x = self.norm(x)
+#         x = rearrange(x, 'b (h w) c -> b c h w', h=int(self.patch_embed.n_patches**0.5))
+
+#         return x
+
+# class TransformerUNet(nn.Module):
+#     def __init__(self, config):
+#         super().__init__()
+#         self.encoder = TransformerEncoder(
+#             img_size=config['img_size'],
+#             patch_size=config['patch_size'],
+#             in_chans=config['in_channels'],
+#             embed_dim=config['embed_dim'],
+#             depth=config['depth'],
+#             n_heads=config['n_heads'],
+#             mlp_ratio=config['mlp_ratio'],
+#             qkv_bias=config['qkv_bias'],
+#             p=config['p'],
+#             attn_p=config['attn_p']
+#         )
+        
+#         self.pretrained_model = smp.create_model(
+#             arch=config['arch'],
+#             encoder_name=config['encoder_name'],
+#             encoder_weights=config['encoder_weights'],
+#             in_channels=config['in_channels'],
+#             classes=config['classes']
+#         )
+        
+#         # Remove the segmentation head from the pretrained model
+#         self.pretrained_model.segmentation_head = nn.Identity()
+        
+#         decoder_channels = (256, 128, 64, 32, 16)
+#         encoder_channels = self.pretrained_model.encoder.out_channels
+        
+#         self.decoder = nn.ModuleList()
+#         for i in range(len(decoder_channels)):
+#             in_ch = encoder_channels[-i-1] if i == 0 else decoder_channels[i-1]
+#             out_ch = decoder_channels[i]
+#             self.decoder.append(nn.Conv2d(in_ch, out_ch, kernel_size=3, padding=1))
+#             self.decoder.append(nn.BatchNorm2d(out_ch))
+#             self.decoder.append(nn.ReLU(inplace=True))
+#             if i < len(decoder_channels) - 1:
+#                 self.decoder.append(nn.Conv2d(out_ch, out_ch, kernel_size=3, padding=1))
+#                 self.decoder.append(nn.BatchNorm2d(out_ch))
+#                 self.decoder.append(nn.ReLU(inplace=True))
+#                 self.decoder.append(nn.Upsample(scale_factor=2, mode='bilinear', align_corners=True))
+        
+#         self.fusion = nn.Sequential(
+#             nn.Conv2d(config['embed_dim'], encoder_channels[-1], kernel_size=1),
+#             nn.BatchNorm2d(encoder_channels[-1]),
+#             nn.ReLU(inplace=True)
+#         )
+        
+#         self.segmentation_head = nn.Conv2d(decoder_channels[-1], config['classes'], kernel_size=1)
+
+#     def forward(self, x):
+#         transformer_features = self.encoder(x)
+#         pretrained_features = self.pretrained_model.encoder(x)
+        
+#         transformer_features = self.fusion(transformer_features)
+#         features = transformer_features + pretrained_features[-1]
+        
+#         decoder_output = features
+#         for layer in self.decoder:
+#             decoder_output = layer(decoder_output)
+        
+#         masks = self.segmentation_head(decoder_output)
+#         return masks
+
+# class PatchEmbed(nn.Module):
+#     def __init__(self, img_size, patch_size, in_chans, embed_dim):
+#         super().__init__()
+#         self.n_patches = (img_size // patch_size) ** 2
+#         self.proj = nn.Conv2d(in_chans, embed_dim, kernel_size=patch_size, stride=patch_size)
+    
+#     def forward(self, x):
+#         x = self.proj(x)
+#         x = x.flatten(2).transpose(1, 2)
+#         return x
+
+# class Block(nn.Module):
+#     def __init__(self, dim, n_heads, mlp_ratio=4., qkv_bias=False, p=0., attn_p=0.):
+#         super().__init__()
+#         self.norm1 = nn.LayerNorm(dim)
+#         self.attn = nn.MultiheadAttention(dim, n_heads, dropout=attn_p, bias=qkv_bias)
+#         self.drop_path = nn.Identity()
+#         self.norm2 = nn.LayerNorm(dim)
+#         self.mlp = nn.Sequential(
+#             nn.Linear(dim, int(dim * mlp_ratio)),
+#             nn.GELU(),
+#             nn.Dropout(p),
+#             nn.Linear(int(dim * mlp_ratio), dim),
+#             nn.Dropout(p)
+#         )
+    
+#     def forward(self, x):
+#         x = x + self.drop_path(self.attn(self.norm1(x), self.norm1(x), self.norm1(x))[0])
+#         x = x + self.drop_path(self.mlp(self.norm2(x)))
+#         return x
+    
+    
+    
+    
+# -------------------------------------------------------------------------------------------------------------------- # SECOND VERSION
+
+
+# class PatchEmbed(nn.Module):
+#     def __init__(self, img_size=256, patch_size=16, in_chans=1, embed_dim=768):
+#         super().__init__()
+#         self.img_size = img_size
+#         self.patch_size = patch_size
+#         self.n_patches = (img_size // patch_size) ** 2
+#         self.proj = nn.Conv2d(in_chans, embed_dim, kernel_size=patch_size, stride=patch_size)
+    
+#     def forward(self, x):
+#         x = self.proj(x)
+#         x = x.flatten(2).transpose(1, 2)
+#         return x
+
+# class TransformerEncoder(nn.Module):
+#     def __init__(self, img_size=256, patch_size=16, in_chans=1, embed_dim=768, depth=12, n_heads=12, mlp_ratio=4.0, qkv_bias=True, p=0., attn_p=0.):
+#         super().__init__()
+#         self.patch_embed = PatchEmbed(img_size, patch_size, in_chans, embed_dim)
+#         self.pos_embed = nn.Parameter(torch.zeros(1, self.patch_embed.n_patches, embed_dim))
+#         self.pos_drop = nn.Dropout(p=p)
+
+#         self.blocks = nn.ModuleList([
+#             nn.TransformerEncoderLayer(d_model=embed_dim, nhead=n_heads, dim_feedforward=int(embed_dim * mlp_ratio), dropout=p, activation='gelu')
+#             for _ in range(depth)
+#         ])
+#         self.norm = nn.LayerNorm(embed_dim, eps=1e-6)
+
+#     def forward(self, x):
+#         x = self.patch_embed(x)
+#         x = x + self.pos_embed
+#         x = self.pos_drop(x)
+#         for block in self.blocks:
+#             x = block(x)
+#         x = self.norm(x)
+#         x = rearrange(x, 'b (h w) c -> b c h w', h=int(self.patch_embed.n_patches**0.5))
+#         return x
+
+# class TransformerUNet(nn.Module):
+#     def __init__(self, config):
+#         super().__init__()
+#         self.encoder = TransformerEncoder(
+#             img_size=config['img_size'],
+#             patch_size=config['patch_size'],
+#             in_chans=config['in_channels'],
+#             embed_dim=config['embed_dim'],
+#             depth=config['depth'],
+#             n_heads=config['n_heads'],
+#             mlp_ratio=config['mlp_ratio'],
+#             qkv_bias=config['qkv_bias'],
+#             p=config['p'],
+#             attn_p=config['attn_p']
+#         )
+        
+#         self.pretrained_model = smp.create_model(
+#             arch=config['arch'],
+#             encoder_name=config['encoder_name'],
+#             encoder_weights=config['encoder_weights'],
+#             in_channels=config['in_channels'],
+#             classes=config['classes']
+#         )
+#         self.pretrained_model.segmentation_head = nn.Identity()
+        
+#         decoder_channels = (256, 128, 64, 32, 16)
+#         encoder_channels = self.pretrained_model.encoder.out_channels
+        
+#         self.decoder = nn.ModuleList()
+#         for i in range(len(decoder_channels)):
+#             in_ch = encoder_channels[-i-1] if i == 0 else decoder_channels[i-1]
+#             out_ch = decoder_channels[i]
+#             self.decoder.append(nn.Sequential(
+#                 nn.Conv2d(in_ch, out_ch, kernel_size=3, padding=1),
+#                 nn.BatchNorm2d(out_ch),
+#                 nn.ReLU(inplace=True),
+#                 nn.Conv2d(out_ch, out_ch, kernel_size=3, padding=1),
+#                 nn.BatchNorm2d(out_ch),
+#                 nn.ReLU(inplace=True),
+#                 nn.Upsample(scale_factor=2, mode='bilinear', align_corners=True) if i < len(decoder_channels) - 1 else nn.Identity()
+#             ))
+        
+#         self.fusion = nn.Sequential(
+#             nn.Conv2d(config['embed_dim'], encoder_channels[-1], kernel_size=1),
+#             nn.BatchNorm2d(encoder_channels[-1]),
+#             nn.ReLU(inplace=True)
+#         )
+        
+#         self.segmentation_head = nn.Conv2d(decoder_channels[-1], config['classes'], kernel_size=1)
+
+#     def forward(self, x):
+#         transformer_features = self.encoder(x)
+#         pretrained_features = self.pretrained_model.encoder(x)
+        
+#         transformer_features = self.fusion(transformer_features)
+#         features = transformer_features + pretrained_features[-1]
+        
+#         decoder_output = features
+#         for layer in self.decoder:
+#             decoder_output = layer(decoder_output)
+        
+#         masks = self.segmentation_head(decoder_output)
+#         return masks
+
+# -------------------------------------------------------------------------------------------------------------------- # HYBRID MODEL
+import torch
+import torch.nn as nn
+import torch.nn.functional as F
+from einops import rearrange
+import segmentation_models_pytorch as smp
+
+class PatchEmbed(nn.Module):
+    def __init__(self, img_size, patch_size, in_chans, embed_dim):
+        super().__init__()
+        self.n_patches = (img_size // patch_size) ** 2
+        self.proj = nn.Conv2d(in_chans, embed_dim, kernel_size=patch_size, stride=patch_size)
+    
+    def forward(self, x):
+        x = self.proj(x)
+        x = x.flatten(2).transpose(1, 2)
+        return x
+
+class SEBlock(nn.Module):
+    def __init__(self, in_channels, reduction=16):
+        super(SEBlock, self).__init__()
+        self.global_avg_pool = nn.AdaptiveAvgPool2d(1)
+        self.fc = nn.Sequential(
+            nn.Linear(in_channels, in_channels // reduction, bias=False),
+            nn.ReLU(inplace=True),
+            nn.Linear(in_channels // reduction, in_channels, bias=False),
+            nn.Sigmoid()
+        )
+
+    def forward(self, x):
+        b, c, _, _ = x.size()
+        y = self.global_avg_pool(x).view(b, c)
+        y = self.fc(y).view(b, c, 1, 1)
+        return x * y.expand_as(x)
+
+class TransformerBlock(nn.Module):
+    def __init__(self, dim, n_heads, mlp_ratio=4., qkv_bias=False, p=0., attn_p=0.):
+        super().__init__()
+        self.norm1 = nn.LayerNorm(dim)
+        self.attn = nn.MultiheadAttention(dim, n_heads, dropout=attn_p, bias=qkv_bias)
+        self.drop_path = nn.Identity()
+        self.norm2 = nn.LayerNorm(dim)
+        self.mlp = nn.Sequential(
+            nn.Linear(dim, int(dim * mlp_ratio)),
+            nn.GELU(),
+            nn.Dropout(p),
+            nn.Linear(int(dim * mlp_ratio), dim),
+            nn.Dropout(p)
+        )
+
+    def forward(self, x):
+        x = x + self.drop_path(self.attn(self.norm1(x), self.norm1(x), self.norm1(x))[0])
+        x = x + self.drop_path(self.mlp(self.norm2(x)))
+        return x
 
 class TransformerEncoder(nn.Module):
-    def __init__(
-        self,
-        img_size=256,
-        patch_size=16,
-        in_chans=1,
-        embed_dim=768,
-        depth=12,
-        n_heads=12,
-        mlp_ratio=4.0,
-        qkv_bias=True,
-        p=0.,
-        attn_p=0.,
-    ):
+    def __init__(self, img_size=256, patch_size=16, in_chans=1, embed_dim=768, depth=12, n_heads=12, mlp_ratio=4.0, qkv_bias=True, p=0., attn_p=0.):
         super().__init__()
-
-        self.patch_embed = PatchEmbed(
-            img_size=img_size,
-            patch_size=patch_size,
-            in_chans=in_chans,
-            embed_dim=embed_dim,
-        )
-        self.pos_embed = nn.Parameter(
-            torch.zeros(1, self.patch_embed.n_patches, embed_dim)
-        )
+        self.patch_embed = PatchEmbed(img_size, patch_size, in_chans, embed_dim)
+        self.pos_embed = nn.Parameter(torch.zeros(1, self.patch_embed.n_patches, embed_dim))
         self.pos_drop = nn.Dropout(p=p)
-
-        self.blocks = nn.ModuleList(
-            [
-                Block(
-                    dim=embed_dim,
-                    n_heads=n_heads,
-                    mlp_ratio=mlp_ratio,
-                    qkv_bias=qkv_bias,
-                    p=p,
-                    attn_p=attn_p,
-                )
-                for _ in range(depth)
-            ]
-        )
-
+        self.blocks = nn.ModuleList([
+            TransformerBlock(dim=embed_dim, n_heads=n_heads, mlp_ratio=mlp_ratio, qkv_bias=qkv_bias, p=p, attn_p=attn_p)
+            for _ in range(depth)
+        ])
         self.norm = nn.LayerNorm(embed_dim, eps=1e-6)
 
     def forward(self, x):
         x = self.patch_embed(x)
         x = x + self.pos_embed
         x = self.pos_drop(x)
-
         for block in self.blocks:
             x = block(x)
-
         x = self.norm(x)
         x = rearrange(x, 'b (h w) c -> b c h w', h=int(self.patch_embed.n_patches**0.5))
-
         return x
 
 class TransformerUNet(nn.Module):
@@ -248,8 +527,6 @@ class TransformerUNet(nn.Module):
             in_channels=config['in_channels'],
             classes=config['classes']
         )
-        
-        # Remove the segmentation head from the pretrained model
         self.pretrained_model.segmentation_head = nn.Identity()
         
         decoder_channels = (256, 128, 64, 32, 16)
@@ -259,13 +536,23 @@ class TransformerUNet(nn.Module):
         for i in range(len(decoder_channels)):
             in_ch = encoder_channels[-i-1] if i == 0 else decoder_channels[i-1]
             out_ch = decoder_channels[i]
-            self.decoder.append(nn.Conv2d(in_ch, out_ch, kernel_size=3, padding=1))
-            self.decoder.append(nn.BatchNorm2d(out_ch))
-            self.decoder.append(nn.ReLU(inplace=True))
-            if i < len(decoder_channels) - 1:
-                self.decoder.append(nn.Upsample(scale_factor=2, mode='bilinear', align_corners=True))
+            self.decoder.append(nn.Sequential(
+                nn.Conv2d(in_ch, out_ch, kernel_size=3, padding=1),
+                nn.BatchNorm2d(out_ch),
+                nn.ReLU(inplace=True),
+                SEBlock(out_ch),
+                nn.Conv2d(out_ch, out_ch, kernel_size=3, padding=1),
+                nn.BatchNorm2d(out_ch),
+                nn.ReLU(inplace=True),
+                nn.Upsample(scale_factor=2, mode='bilinear', align_corners=True) if i < len(decoder_channels) - 1 else nn.Identity()
+            ))
         
-        self.fusion = nn.Conv2d(config['embed_dim'], encoder_channels[-1], kernel_size=1)
+        self.fusion = nn.Sequential(
+            nn.Conv2d(config['embed_dim'], encoder_channels[-1], kernel_size=1),
+            nn.BatchNorm2d(encoder_channels[-1]),
+            nn.ReLU(inplace=True)
+        )
+        
         self.segmentation_head = nn.Conv2d(decoder_channels[-1], config['classes'], kernel_size=1)
 
     def forward(self, x):
@@ -281,33 +568,3 @@ class TransformerUNet(nn.Module):
         
         masks = self.segmentation_head(decoder_output)
         return masks
-    
-# class TransformerUNet(nn.Module):
-#     def __init__(self, encoder, out_chans=1):
-#         super().__init__()
-
-#         self.encoder = encoder
-#         embed_dim = encoder.blocks[-1].mlp.fc2.out_features
-
-#         self.decoder = nn.Sequential(
-#             nn.Conv2d(embed_dim, 512, kernel_size=3, stride=1, padding=1),
-#             nn.BatchNorm2d(512),
-#             nn.ReLU(inplace=True),
-#             nn.Conv2d(512, 256, kernel_size=3, stride=1, padding=1),
-#             nn.BatchNorm2d(256),
-#             nn.ReLU(inplace=True),
-#             nn.Conv2d(256, 128, kernel_size=3, stride=1, padding=1),
-#             nn.BatchNorm2d(128),
-#             nn.ReLU(inplace=True),
-#             nn.Conv2d(128, 64, kernel_size=3, stride=1, padding=1),
-#             nn.BatchNorm2d(64),
-#             nn.ReLU(inplace=True),
-#             nn.Conv2d(64, out_chans, kernel_size=1, stride=1, padding=0),
-#         )
-
-#     def forward(self, x):
-#         x = self.encoder(x)
-#         x = self.decoder(x)
-#         x = F.interpolate(x, size=(256, 256), mode='bilinear', align_corners=False)
-
-#         return x

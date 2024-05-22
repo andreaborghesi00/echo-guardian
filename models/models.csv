@@ -30,4 +30,11 @@ Unnamed: 0.1,Unnamed: 0,arch,encoder_name,encoder_weights,in_channels,classes,op
 ,,DeepLabV3Plus,resnet34,imagenet,1,1,AdamW,0.0003,1.5e-05,100,0.08308669,0.15342575
 ,,DeepLabV3Plus,resnet34,imagenet,1,1,AdamW,0.0003,1.5e-05,100,0.094583094,0.17282031
 ,,DeepLabV3Plus,resnet34,imagenet,1,1,AdamW,0.0003,1.5e-05,100,0.08680639,0.15974581
-,,DeepLabV3Plus,resnet34,imagenet,1,1,AdamW,0.0003,1.4999999999999999e-05,100,0.08866322,0.16288458
+,,DeepLabV3Plus,resnet34,imagenet,1,1,AdamW,0.0003,1.5e-05,100,0.08866322,0.16288458
+,,DeepLabV3Plus,resnet34,imagenet,1,1,AdamW,0.0003,1.5e-05,100,0.16459914,0.2826709
+,,DeepLabV3Plus,resnet34,imagenet,1,1,AdamW,0.0003,1.5e-05,100,0.28613713,0.4449559
+,,DeepLabV3Plus,resnet34,imagenet,1,1,AdamW,0.0003,1.5e-05,100,0.56423956,0.72142345
+,,DeepLabV3Plus,resnet34,imagenet,1,1,AdamW,0.0003,1.5e-05,100,0.5596034,0.7176227
+,,DeepLabV3Plus,resnet34,imagenet,1,1,AdamW,0.0003,1.5e-05,100,0.541829,0.70283926
+,,DeepLabV3Plus,resnet34,imagenet,1,1,AdamW,0.0003,1.5e-05,200,0.54785776,0.7078916
+,,DeepLabV3Plus,resnet34,imagenet,1,1,AdamW,0.0003,1.4999999999999999e-05,200,0.54926634,0.70906633
