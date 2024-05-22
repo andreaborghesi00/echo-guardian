@@ -17,8 +17,6 @@ from PIL import Image
 
 from NNClassification import NNClassifier
 from UnetSegmenter import UnetSegmenter
-from SimpleNet import SimpleNet
-import SimpleNet as sn
 
 def path_to_indices(path):
     """
@@ -43,6 +41,7 @@ def path_to_mask(path, shape):
     mask = np.zeros(shape, dtype=bool)
     mask[rr_clipped, cc_clipped] = True
     mask_numpy = np.array(mask)
+
     mask = ndimage.binary_fill_holes(mask)
     return mask, mask_numpy
 
@@ -51,7 +50,7 @@ def set_classifier_path(path):
 
 def get_classifier_path():
     if 'classifier_path' not in g:
-        set_classifier_path('./models/best_model.pth')
+        set_classifier_path('models/best_model.pth')
     return g.classifier_path
 
 def get_classifier():
@@ -64,7 +63,7 @@ def set_segmenter_path(path):
 
 def get_segmenter_path():
     if 'segmenter_path' not in g:
-        set_segmenter_path('./models/DeepLabV3Plus_resnet34_lr_0.0001_epochs_100_actual_model.pth')
+        set_segmenter_path('models/DeepLabV3Plus_resnet34_lr_0.0001_epochs_100_actual_model.pth')
     return g.segmenter_path
 
 def get_segmenter():
@@ -177,7 +176,9 @@ app.layout = html.Div([
 def on_new_annotation(relayout_data, image):
     if "shapes" in relayout_data:
         last_shape = relayout_data["shapes"][-1]
-        mask_numpy= path_to_mask(last_shape["path"], np.array(image).shape)
+        mask, mask_numpy= path_to_mask(last_shape["path"], np.array(image).shape)
+        # squeeze the first dimension
+        print(mask_numpy.shape)
         return mask_numpy
     else:
         raise PreventUpdate
@@ -235,8 +236,8 @@ def on_predict(n_clicks_classify, n_clicks_classify_segmenter, image, mask, segm
             return "Please upload an image and draw an ROI before predicting."
         else:
             try:
-                class_pred = predict_class(image, mask)
-                return f"Predicted class: {class_pred}"
+                class_pred = predict_class(image, mask).cpu().numpy()[0][0]
+                return f'Predicted class with user segmentation:\n {f"Malignant {class_pred*100:.2f}%" if np.round(class_pred) == 1 else f"Benign {(1-class_pred)*100:.2f}%"}'
             except Exception as e:
                 return f"Error: {str(e)}"
     elif ctx.triggered_id == "classify-with-segmenter-button":
