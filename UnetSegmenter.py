@@ -9,7 +9,7 @@ import cv2
 class UnetSegmenter():
     def __init__(self, model_path='DeepLabV3Plus_resnet34_lr_0.0001_epochs_100_actual_model.pth'):
         self.load_model(model_path)
-        self.scaler = pickle.load(open('./models/scaler_segmentation.pkl', 'rb'))
+        # self.scaler = pickle.load(open('./models/scaler_segmentation.pkl', 'rb'))
 
     def load_model(self, model_path):
         
