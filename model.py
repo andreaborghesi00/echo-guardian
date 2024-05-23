@@ -407,6 +407,7 @@ data_train, data_valtest, label_train, label_valtest = train_test_split(img_mask
 data_val, data_test, label_val, label_test = train_test_split(data_valtest, label_valtest, test_size=0.5, random_state=69420, stratify=label_valtest)
 
 # %%
+
 segmentation_train_augmentation = A.Compose([
     A.HorizontalFlip(p=0.5),
     A.VerticalFlip(p=0.5),
@@ -415,6 +416,12 @@ segmentation_train_augmentation = A.Compose([
     A.RandomGamma(p=0.5),
     A.GaussNoise(var_limit=(5/255, 20/255), p=0.5),
     A.Blur(blur_limit=7, p=0.5),
+    #A.RandomBrightnessContrast(brightness_limit=0.2, contrast_limit=0.2, p=0.5),
+    A.ElasticTransform(alpha=1.0, sigma=50.0, alpha_affine=50.0, p=0.5),
+    A.GridDistortion(num_steps=5, distort_limit=0.3, p=0.5),
+    A.OpticalDistortion(distort_limit=0.3, shift_limit=0.3, p=0.5),
+    A.CoarseDropout(max_holes=8, max_height=8, max_width=8, fill_value=0, p=0.5),
+    A.Resize(256, 256),
     ToTensorV2(),
 ])
 
@@ -603,9 +610,9 @@ def train_segmentation(model, train_loader, val_loader, optimizer, loss_criterio
         pbar.update(1)
         pbar.close()
 
-        if iou_val > best_iou:
-            print(f"Saving model with IoU: {iou_val:.3f} > {best_iou:.3f}")
-            best_iou = iou_val
+        if dice_val > best_iou:
+            print(f"Saving model with Dice Val: {dice_val:.3f} > {dice_val:.3f}")
+            best_iou = dice_val
             torch.save({
                 'epoch': epoch,
                 'model_state_dict': model.state_dict(),
@@ -653,28 +660,28 @@ class FocalLoss(nn.Module):
 
 # %%
 class DiceLoss(nn.Module):
-    def __init__(self, smooth=1e-6):
+    def __init__(self, smooth=1.0):
         super(DiceLoss, self).__init__()
         self.smooth = smooth
 
     def forward(self, inputs, targets):
         # Apply sigmoid to the inputs to get probabilities
         inputs = torch.sigmoid(inputs)
-        
+
         # Flatten the inputs and targets
         inputs = inputs.view(-1)
         targets = targets.view(-1)
-        
+
         # Compute the intersection and union
         intersection = (inputs * targets).sum()
         union = inputs.sum() + targets.sum()
-        
+
         # Compute the Dice coefficient
-        dice_coeff = (2. * intersection + self.smooth) / (union + self.smooth)
-        
+        dice_coeff = (2.0 * intersection + self.smooth) / (union + self.smooth)
+
         # Compute the Dice loss
-        dice_loss = 1 - dice_coeff
-        
+        dice_loss = 1.0 - dice_coeff
+
         return dice_loss
 
 
@@ -763,24 +770,23 @@ epochs = 200
 to_train = True
 
 # Implement Cosine Annealing Learning Rate
-#optimizer = torch.optim.AdamW(filter(lambda p: p.requires_grad, segmentation_model.parameters()), lr=learning_rate, weight_decay=weight_decay)
-#scheduler = torch.optim.lr_scheduler.CosineAnnealingWarmRestarts(optimizer, T_0=int(epochs/4), T_mult=2, eta_min=learning_rate/10)
-#scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=epochs, eta_min=learning_rate/10)
+optimizer = torch.optim.AdamW(filter(lambda p: p.requires_grad, segmentation_model.parameters()), lr=learning_rate, weight_decay=weight_decay)
 
 # Update optimizer to Ranger
 num_batches_per_epoch = len(train_segment_dl)
 
-# Advanced optimizer and scheduler
-optimizer = Ranger21(
-    transformer_vision.parameters(),
-    lr=learning_rate,
-    weight_decay=weight_decay,
-    num_epochs=epochs,
-    num_batches_per_epoch=num_batches_per_epoch
-)
+#Advanced optimizer and scheduler
+# optimizer = Ranger21(
+#     transformer_vision.parameters(),
+#     lr=learning_rate,
+#     weight_decay=weight_decay,
+#     num_epochs=epochs,
+#     num_batches_per_epoch=num_batches_per_epoch
+# )
 
-# Implement OneCycleLR scheduler
-scheduler = OneCycleLR(optimizer, max_lr=learning_rate, steps_per_epoch=len(train_segment_dl), epochs=epochs)
+#scheduler = torch.optim.lr_scheduler.CosineAnnealingWarmRestarts(optimizer, T_0=int(epochs/4), T_mult=2, eta_min=learning_rate/10)
+scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=epochs, eta_min=learning_rate/10)
+#scheduler = OneCycleLR(optimizer, max_lr=learning_rate, steps_per_epoch=len(train_segment_dl), epochs=epochs)
 
 # Regularization in the transformer blocks and decoder layers
 for block in transformer_vision.encoder.blocks:
@@ -849,7 +855,7 @@ from UnetSegmenter import UnetSegmenter
 from PIL import Image
 
 classifier = NNClassifier('models/best_model.pth')
-segmenter = UnetSegmenter('models/best_segmentation_model.pth') 
+segmenter = UnetSegmenter('models/net_segment_1_v2.pth') 
 
 
 # test of the classifier and segmenter by opening an image and mask from file
@@ -891,7 +897,10 @@ for image in range(len(test_segment_ds)):
     mask = mask.squeeze().cpu().int().numpy()
     
     predicted_mask = segmenter.predict(image = img * 255)
-    predicted_label_generated_mask = classifier.predict(image = img, mask = predicted_mask)[0][0]
+    try:
+        predicted_label_generated_mask = classifier.predict(image = img, mask = predicted_mask)[0][0]
+    except:
+        continue
     predicted_label_real_mask = classifier.predict(image = img, mask = mask)[0][0]
     
     real_label = 'benign' if 'benign' in test_segment_ds.img_mask_paths[image][0] else 'malignant'

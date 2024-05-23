@@ -37,4 +37,6 @@ Unnamed: 0.1,Unnamed: 0,arch,encoder_name,encoder_weights,in_channels,classes,op
 ,,DeepLabV3Plus,resnet34,imagenet,1,1,AdamW,0.0003,1.5e-05,100,0.5596034,0.7176227
 ,,DeepLabV3Plus,resnet34,imagenet,1,1,AdamW,0.0003,1.5e-05,100,0.541829,0.70283926
 ,,DeepLabV3Plus,resnet34,imagenet,1,1,AdamW,0.0003,1.5e-05,200,0.54785776,0.7078916
-,,DeepLabV3Plus,resnet34,imagenet,1,1,AdamW,0.0003,1.4999999999999999e-05,200,0.54926634,0.70906633
+,,DeepLabV3Plus,resnet34,imagenet,1,1,AdamW,0.0003,1.5e-05,200,0.54926634,0.70906633
+,,DeepLabV3Plus,resnet34,imagenet,1,1,AdamW,0.0003,1.5e-05,200,0.5456889,0.7060786
+,,DeepLabV3Plus,resnet34,imagenet,1,1,AdamW,0.0003,1.4999999999999999e-05,200,0.5525545,0.71180046
