@@ -50,11 +50,12 @@ class NNClassifier():
             if np.max(image) <= 1:
                 image = image * 255
             if np.max(mask) <= 1:
-                mask = mask * 255
+                mask = np.multiply(mask, 255)
             
+            if not isinstance(mask, np.ndarray): mask = np.array(mask)
+
             image = cv2.resize(np.array(image), (256, 256))
             mask = cv2.resize(mask, (256, 256), interpolation=cv2.INTER_NEAREST)
-
             
             features = self.extract_radiomics(image, mask)
             features = self.scaler.transform(np.array(features).reshape(1, -1))
