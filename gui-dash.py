@@ -14,6 +14,7 @@ from flask import g
 import io
 import base64
 from PIL import Image
+import requests
 
 from NNClassification import NNClassifier
 from UnetSegmenter import UnetSegmenter
@@ -202,23 +203,31 @@ def on_upload_data(contents, filenames):
             _, content_string = content.split(',')
             decoded_data = base64.b64decode(content_string)
 
-            image_data = io.BytesIO(decoded_data)
+            img = Image.open(io.BytesIO(decoded_data)).convert("L")
+            img_bytes = io.BytesIO()
+            img.save(img_bytes, format='PNG')
+            img_bytes.seek(0)
 
-            img = Image.open(image_data).convert("L")
-            numpy_image = np.array(img)
-            numpy_image = cv.resize(numpy_image, (256, 256))
-            mask = predict_roi(numpy_image)
+            img_numpy = np.array(img)
+            img_numpy = cv.resize(img_numpy, (256, 256))
+
+            files = {'image': img_bytes}
+            response = requests.post('http://localhost:5000/api/segment', files=files)
+            response.raise_for_status()
+
+            mask_bytes = response.content
+            mask = Image.open(io.BytesIO(mask_bytes))
+            mask_numpy = np.array(mask)
+
             fig_masks.append(px.imshow(mask))
-
-            fig = px.imshow(numpy_image, title=filename)
-            fig.update_layout(dragmode='drawclosedpath')
-            figures.append(fig)
+            fig_image = px.imshow(img_numpy, title=filename)
+            fig_image.update_layout(dragmode='drawclosedpath')
+            figures.append(fig_image)
 
         # If no figures were created, return an empty figure
         if not figures:
-            return px.imshow(np.zeros((1, 1)))
-
-        return figures[0], numpy_image, fig_masks[0], mask
+            raise PreventUpdate
+        return figures[0], img_numpy, fig_masks[0], mask_numpy
     raise PreventUpdate
 
 @callback(
@@ -236,20 +245,59 @@ def on_predict(n_clicks_classify, n_clicks_classify_segmenter, image, mask, segm
             return "Please upload an image and draw an ROI before predicting."
         else:
             try:
-                class_pred = predict_class(image, mask).cpu().numpy()[0][0]
+                if not isinstance(image, np.ndarray): image = np.array(image)
+                if not isinstance(mask, np.ndarray): mask = np.array(mask)
+
+                image = Image.fromarray(image.astype('uint8')).convert("L")
+                mask = Image.fromarray(mask.astype('uint8')).convert("L")
+
+                # Convert the image and mask to bytes
+                image_bytes = io.BytesIO()
+                image.save(image_bytes, format='PNG')
+                image_bytes.seek(0)
+
+                mask_bytes = io.BytesIO()
+                mask.save(mask_bytes, format='PNG')
+                mask_bytes.seek(0)
+
+                files = {'image': image_bytes, 'mask': mask_bytes}
+                response = requests.post('http://localhost:5000/api/classify', files=files)
+                response.raise_for_status()
+
+                class_pred = response.json()['prediction']
+
                 return f'Predicted class with user segmentation:\n {f"Malignant {class_pred*100:.2f}%" if np.round(class_pred) == 1 else f"Benign {(1-class_pred)*100:.2f}%"}'
-            except Exception as e:
+            except requests.exceptions.RequestException as e:
                 return f"Error: {str(e)}"
+            
     elif ctx.triggered_id == "classify-with-segmenter-button":
         if image is None:
             return "Please upload an image before predicting."
         else:
-            # try:
-            class_pred = predict_class(image, segmenter_mask).cpu().numpy()[0][0]
-            
-            return f'Predicted class with segmenter ROI:\n {f"Malignant {class_pred*100:.2f}%" if np.round(class_pred) == 1 else f"Benign {(1-class_pred)*100:.2f}%"}'
-            # except Exception as e:
-            #     return f"Error: {str(e)}"
+            try:
+                if not isinstance(image, np.ndarray): image = np.array(image) # for some reason it's a python list although i save it as numpy array
+                if not isinstance(segmenter_mask, np.ndarray): segmenter_mask = np.array(segmenter_mask) # same here
+                
+                image = Image.fromarray(image.astype('uint8')).convert("L") 
+                mask = Image.fromarray(segmenter_mask.astype('uint8')).convert("L") 
+
+                image_bytes = io.BytesIO()
+                image.save(image_bytes, format='PNG')
+                image_bytes.seek(0)
+
+                mask_bytes = io.BytesIO()
+                mask.save(mask_bytes, format='PNG')
+                mask_bytes.seek(0)
+
+                files = {'image': image_bytes, 'mask': mask_bytes}
+                response = requests.post('http://localhost:5000/api/classify', files=files)
+                response.raise_for_status()
+
+                class_pred = response.json()['prediction']
+
+                return f'Predicted class with segmenter ROI:\n {f"Malignant {class_pred*100:.2f}%" if np.round(class_pred) == 1 else f"Benign {(1-class_pred)*100:.2f}%"}'
+            except Exception as e:
+                return f"Error: {str(e)}"
 
 if __name__ == "__main__":
     app.run(debug=True)

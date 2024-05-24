@@ -15,17 +15,20 @@ def segment_image():
 
     image_file = request.files['image']
 
-    if image_file.filename == '':
-        return jsonify({'error': 'Invalid image filename'}), 400
-
+    if image_file.filename == '': return jsonify({'error': 'Invalid image filename'}), 400
+    if image_file.content_type != 'image/png': return jsonify({'error': 'Invalid image file type, png is required'}), 400
+    if image_file.content_length == 0: return jsonify({'error': 'Empty image file'}), 400
+    
     image_bytes = image_file.read()
     image_io = BytesIO(image_bytes)
-    image = Image.open(image_io)
+    try: image = Image.open(image_io)
+    except: return jsonify({'error': 'Invalid image file'}), 400
 
     masked_prediction = segmenter.predict(image=image)
     
     masked_io = BytesIO()
-    masked_prediction.save(masked_io, format='PNG')
+    masked_img = Image.fromarray(masked_prediction)
+    masked_img.save(masked_io, format='PNG')
     masked_io.seek(0)
 
     return send_file(masked_io, mimetype='image/png')
@@ -49,16 +52,13 @@ def classify_image():
 
     image_bytes = image_file.read()
     mask_bytes = mask_file.read()
-
     image_io = BytesIO(image_bytes)
     mask_io = BytesIO(mask_bytes)
-
     image = Image.open(image_io)
     mask = Image.open(mask_io)
-
     prediction = classifier.predict(image=image, mask=mask)
 
-    return jsonify({'prediction': prediction})
+    return jsonify({'prediction': prediction.item()})
 
 if __name__ == '__main__':
     if len(sys.argv) != 3:
