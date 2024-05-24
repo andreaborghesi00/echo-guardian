@@ -162,10 +162,10 @@ app.layout = html.Div([
     html.Div([
         html.Div([
             dcc.Graph(id="ultrasound-image", figure=fig, config=config_image),
-        ], style={'width': '40%', 'display': 'inline-block', 'padding': '0 20px'}),
+        ], style={'width': '49%', 'display': 'inline-block', 'padding': '0 2px'}),
         html.Div([
             dcc.Graph(id="segmenter-image", figure=fig_mask, config=config_mask),
-        ], style={'width': '40%', 'display': 'inline-block', 'padding': '0 20px'}),
+        ], style={'width': '49%', 'display': 'inline-block', 'padding': '0 2px'}),
     ], style={'marginBottom': '30px', 'textAlign': 'center'}),
     html.Div([
         html.Button('Predict with your mask', id='classify-button', n_clicks=0, style={
@@ -204,12 +204,51 @@ app.layout = html.Div([
     dcc.Store(id='segmenter-store'),
     dcc.Store(id='auth-store'),
 ], style={
-    'padding': '30px',
+    'padding': '10px',
     'backgroundColor': '#f5f5f5',
     # 'backgroundImage': 'url("background.jpg")',
     'backgroundSize': 'cover',
     'backgroundPosition': 'center'
 })
+
+login_section = html.Div([
+            dcc.Input(
+                id='username-input',
+                type='text',
+                placeholder='Enter your username',
+                style={'width': '200px', 'marginRight': '10px'}
+            ),
+            dcc.Input(
+                id='password-input',
+                type='password',
+                placeholder='Enter your password',
+                style={'width': '200px', 'marginRight': '10px'}
+            ),
+            html.Button('Login', id='login-button', n_clicks=0, style={
+                'fontSize': '16px',
+                'padding': '5px 10px',
+                'backgroundColor': '#4CAF50',
+                'color': 'white',
+                'border': 'none',
+                'borderRadius': '4px',
+                'cursor': 'pointer',
+                'transition': 'background-color 0.3s ease'
+            }),
+            html.Div(id='login-output', style={'marginTop': '10px'})
+        ], style={'marginBottom': '20px', 'textAlign': 'center'}),
+
+logged_in_section = html.Div([
+            html.Button('Logout', id='logout-button', n_clicks=0, style={
+            'fontSize': '16px',
+            'padding': '5px 10px',
+            'backgroundColor': '#AF4C4C',
+            'color': 'white',
+            'border': 'none',
+            'borderRadius': '4px',
+            'cursor': 'pointer',
+            'transition': 'background-color 0.3s ease'
+        })
+    ], style={'marginBottom': '20px', 'textAlign': 'center'})
 
 @callback(
     Output("mask-store", "data"),
@@ -238,7 +277,7 @@ def on_new_annotation(relayout_data, image):
     prevent_initial_call=True,
 )
 def on_upload_data(contents, filenames, auth):
-    if auth is None: raise PreventUpdate
+    if auth is None: no_update, no_update, no_update, no_update, "Please login first."
 
     if contents is not None:
         figures = []
@@ -266,7 +305,9 @@ def on_upload_data(contents, filenames, auth):
             mask_numpy = np.array(mask)
             mask_numpy = ndimage.binary_fill_holes(mask_numpy)
 
-            fig_masks.append(px.imshow(mask_numpy))
+            print(mask_numpy.dtype)
+
+            fig_masks.append(px.imshow(mask_numpy, title="Automatic segmenter mask"))
             fig_image = px.imshow(img_numpy, title=filename)
             fig_image.update_layout(dragmode='drawclosedpath')
             figures.append(fig_image)
@@ -289,7 +330,7 @@ def on_upload_data(contents, filenames, auth):
     prevent_initial_call=True,
 )
 def on_predict(n_clicks_classify, n_clicks_classify_segmenter, image, mask, segmenter_mask, auth):
-    if auth is None: raise PreventUpdate
+    if auth is None: return "Please login first."
 
     if ctx.triggered_id == "classify-button":
         if image is None or mask is None:
@@ -358,31 +399,8 @@ def on_predict(n_clicks_classify, n_clicks_classify_segmenter, image, mask, segm
         prevent_initial_call='initial duplicate',
 )
 def render_first_login_section(dummy):
-    return html.Div([
-        dcc.Input(
-            id='username-input',
-            type='text',
-            placeholder='Enter your username',
-            style={'width': '200px', 'marginRight': '10px'}
-        ),
-        dcc.Input(
-            id='password-input',
-            type='password',
-            placeholder='Enter your password',
-            style={'width': '200px', 'marginRight': '10px'}
-        ),
-        html.Button('Login', id='login-button', style={
-            'fontSize': '16px',
-            'padding': '5px 10px',
-            'backgroundColor': '#4CAF50',
-            'color': 'white',
-            'border': 'none',
-            'borderRadius': '4px',
-            'cursor': 'pointer',
-            'transition': 'background-color 0.3s ease'
-        }),
-        html.Div(id='login-output', style={'marginTop': '10px'})
-    ], style={'marginBottom': '20px', 'textAlign': 'center'})
+    global login_section
+    return login_section
 
 @app.callback(
     Output('login-section', 'children', allow_duplicate=True),
@@ -393,34 +411,9 @@ def render_first_login_section(dummy):
     prevent_initial_call=True,
 )
 def render_login_section(n_clicks, username, password):
+    global login_section, logged_in_section
     if n_clicks is None: raise PreventUpdate
 
-    login_section = html.Div([
-            dcc.Input(
-                id='username-input',
-                type='text',
-                placeholder='Enter your username',
-                style={'width': '200px', 'marginRight': '10px'}
-            ),
-            dcc.Input(
-                id='password-input',
-                type='password',
-                placeholder='Enter your password',
-                style={'width': '200px', 'marginRight': '10px'}
-            ),
-            html.Button('Login', id='login-button', n_clicks=0, style={
-                'fontSize': '16px',
-                'padding': '5px 10px',
-                'backgroundColor': '#4CAF50',
-                'color': 'white',
-                'border': 'none',
-                'borderRadius': '4px',
-                'cursor': 'pointer',
-                'transition': 'background-color 0.3s ease'
-            }),
-            html.Div(id='login-output', style={'marginTop': '10px'})
-        ], style={'marginBottom': '20px', 'textAlign': 'center'}),
-    logged_in_section = html.Div(f'Welcome {username}', style={'float': 'right', 'marginTop': '10px'})
     if not username or not password:
         return login_section, None
 
@@ -433,6 +426,21 @@ def render_login_section(n_clicks, username, password):
     else:
         print('Unauthorized access')
         return login_section, None
+
+@app.callback(
+    Output('login-section', 'children'),
+    Input('logout-button', 'n_clicks'),
+    State('auth-store', 'data'),
+    prevent_initial_call=True,
+)
+def on_logout(n_clicks, auth):
+    if n_clicks > 0:
+        auth['username'], auth['password'] = None, None
+        return login_section
+    else: raise PreventUpdate
+
+
+
 
 if __name__ == "__main__":
     app.run(debug=True)
