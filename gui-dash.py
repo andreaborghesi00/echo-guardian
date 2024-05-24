@@ -10,11 +10,14 @@ from dash.exceptions import PreventUpdate
 import dash_daq as daq
 import plotly.express as px
 from flask import g
+import requests
+from requests.auth import HTTPBasicAuth
+
 
 import io
 import base64
+import hashlib
 from PIL import Image
-import requests
 
 from NNClassification import NNClassifier
 from UnetSegmenter import UnetSegmenter
@@ -91,10 +94,12 @@ fig_mask = px.imshow(mask)
 fig.update_layout(dragmode='drawclosedpath')
 
 
-app = Dash(__name__)
+app = Dash(__name__, suppress_callback_exceptions=True)
 
 app.layout = html.Div([
     html.H1("Medical Image Analysis", style={'textAlign': 'center'}),
+    html.Div(id='login-section'),  # A placeholder div for the login section
+    dcc.Input(id='dummy-input', value='initial-value', style={'display': 'none'}),
     html.Div([
         dcc.Upload(
             id='upload-data',
@@ -160,6 +165,7 @@ app.layout = html.Div([
     dcc.Store(id='image-store'),
     dcc.Store(id='mask-store'),
     dcc.Store(id='segmenter-store'),
+    dcc.Store(id='auth-store'),
 ], style={
     'padding': '30px',
     'backgroundColor': '#f5f5f5',
@@ -179,7 +185,6 @@ def on_new_annotation(relayout_data, image):
         last_shape = relayout_data["shapes"][-1]
         mask, mask_numpy= path_to_mask(last_shape["path"], np.array(image).shape)
         # squeeze the first dimension
-        print(mask_numpy.shape)
         return mask_numpy
     else:
         raise PreventUpdate
@@ -192,9 +197,12 @@ def on_new_annotation(relayout_data, image):
     Output("segmenter-store", "data"),
     Input("upload-data", "contents"),
     State("upload-data", "filename"),
+    State("auth-store", "data"),
     prevent_initial_call=True,
 )
-def on_upload_data(contents, filenames):
+def on_upload_data(contents, filenames, auth):
+    if auth is None: raise PreventUpdate
+
     if contents is not None:
         figures = []
         fig_masks = []
@@ -211,8 +219,9 @@ def on_upload_data(contents, filenames):
             img_numpy = np.array(img)
             img_numpy = cv.resize(img_numpy, (256, 256))
 
-            files = {'image': img_bytes}
-            response = requests.post('http://localhost:5000/api/segment', files=files)
+            files = {'image': ("Image.png", img_bytes, "image/png")}
+
+            response = requests.post('http://localhost:5000/api/segment', files=files, auth=HTTPBasicAuth(username=auth['username'], password=auth['password']))
             response.raise_for_status()
 
             mask_bytes = response.content
@@ -230,6 +239,7 @@ def on_upload_data(contents, filenames):
         return figures[0], img_numpy, fig_masks[0], mask_numpy
     raise PreventUpdate
 
+
 @callback(
     Output("output-predict", "children"),
     Input("classify-button", "n_clicks"), # not actually used, it serves as a trigger
@@ -237,9 +247,12 @@ def on_upload_data(contents, filenames):
     State("image-store", "data"),
     State("mask-store", "data"),
     State("segmenter-store", "data"),
+    State("auth-store", "data"),
     prevent_initial_call=True,
 )
-def on_predict(n_clicks_classify, n_clicks_classify_segmenter, image, mask, segmenter_mask):
+def on_predict(n_clicks_classify, n_clicks_classify_segmenter, image, mask, segmenter_mask, auth):
+    if auth is None: raise PreventUpdate
+
     if ctx.triggered_id == "classify-button":
         if image is None or mask is None:
             return "Please upload an image and draw an ROI before predicting."
@@ -261,7 +274,7 @@ def on_predict(n_clicks_classify, n_clicks_classify_segmenter, image, mask, segm
                 mask_bytes.seek(0)
 
                 files = {'image': image_bytes, 'mask': mask_bytes}
-                response = requests.post('http://localhost:5000/api/classify', files=files)
+                response = requests.post('http://localhost:5000/api/classify', files=files, auth=HTTPBasicAuth(username=auth['username'], password=auth['password']))
                 response.raise_for_status()
 
                 class_pred = response.json()['prediction']
@@ -290,7 +303,7 @@ def on_predict(n_clicks_classify, n_clicks_classify_segmenter, image, mask, segm
                 mask_bytes.seek(0)
 
                 files = {'image': image_bytes, 'mask': mask_bytes}
-                response = requests.post('http://localhost:5000/api/classify', files=files)
+                response = requests.post('http://localhost:5000/api/classify', files=files, auth=HTTPBasicAuth(username=auth['username'], password=auth['password']))
                 response.raise_for_status()
 
                 class_pred = response.json()['prediction']
@@ -298,6 +311,90 @@ def on_predict(n_clicks_classify, n_clicks_classify_segmenter, image, mask, segm
                 return f'Predicted class with segmenter ROI:\n {f"Malignant {class_pred*100:.2f}%" if np.round(class_pred) == 1 else f"Benign {(1-class_pred)*100:.2f}%"}'
             except Exception as e:
                 return f"Error: {str(e)}"
+
+# don't judge me for this first render
+@app.callback(
+        Output('login-section', 'children', allow_duplicate=True),
+        Input('dummy-input', 'value'),  # A dummy input to trigger the callback
+        suppress_callback_exceptions=True,
+        prevent_initial_call='initial duplicate',
+)
+def render_first_login_section(dummy):
+    return html.Div([
+        dcc.Input(
+            id='username-input',
+            type='text',
+            placeholder='Enter your username',
+            style={'width': '200px', 'marginRight': '10px'}
+        ),
+        dcc.Input(
+            id='password-input',
+            type='password',
+            placeholder='Enter your password',
+            style={'width': '200px', 'marginRight': '10px'}
+        ),
+        html.Button('Login', id='login-button', style={
+            'fontSize': '16px',
+            'padding': '5px 10px',
+            'backgroundColor': '#4CAF50',
+            'color': 'white',
+            'border': 'none',
+            'borderRadius': '4px',
+            'cursor': 'pointer',
+            'transition': 'background-color 0.3s ease'
+        }),
+        html.Div(id='login-output', style={'marginTop': '10px'})
+    ], style={'marginBottom': '20px', 'textAlign': 'center'})
+
+@app.callback(
+    Output('login-section', 'children', allow_duplicate=True),
+    Output('auth-store', 'data'),
+    Input('login-button', 'n_clicks'),
+    State('username-input', 'value'),
+    State('password-input', 'value'),
+    prevent_initial_call=True,
+)
+def render_login_section(n_clicks, username, password):
+    if n_clicks is None: raise PreventUpdate
+
+    login_section = html.Div([
+            dcc.Input(
+                id='username-input',
+                type='text',
+                placeholder='Enter your username',
+                style={'width': '200px', 'marginRight': '10px'}
+            ),
+            dcc.Input(
+                id='password-input',
+                type='password',
+                placeholder='Enter your password',
+                style={'width': '200px', 'marginRight': '10px'}
+            ),
+            html.Button('Login', id='login-button', n_clicks=0, style={
+                'fontSize': '16px',
+                'padding': '5px 10px',
+                'backgroundColor': '#4CAF50',
+                'color': 'white',
+                'border': 'none',
+                'borderRadius': '4px',
+                'cursor': 'pointer',
+                'transition': 'background-color 0.3s ease'
+            }),
+            html.Div(id='login-output', style={'marginTop': '10px'})
+        ], style={'marginBottom': '20px', 'textAlign': 'center'}),
+    logged_in_section = html.Div(f'Welcome {username}', style={'float': 'right', 'marginTop': '10px'})
+    if not username or not password:
+        return login_section, None
+
+    hashed_pw = hashlib.md5(password.encode()).hexdigest()
+    auth = HTTPBasicAuth(username, hashed_pw)
+    response = requests.post('http://localhost:5000/api/login', auth=auth)
+    if response.status_code == 200:
+        print('Successfully logged in')
+        return logged_in_section, {'username': username, 'password': hashed_pw}
+    else:
+        print('Unauthorized access')
+        return login_section, None
 
 if __name__ == "__main__":
     app.run(debug=True)

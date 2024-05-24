@@ -4,10 +4,36 @@ from PIL import Image
 from NNClassification import NNClassifier
 from UnetSegmenter import UnetSegmenter
 import sys
+from flask_httpauth import HTTPBasicAuth
+import hashlib
+from functools import wraps
 
 app = Flask(__name__)
+auth = HTTPBasicAuth()
+users = {
+    "admin": hashlib.md5("trental".encode()).hexdigest()
+}
+
+def check_auth(username, password):
+    return users.get(username) == password # comes already hashed
+
+def requires_auth(f):
+    @wraps(f)
+    def decorated(*args, **kwargs):
+        auth = request.authorization
+        if not auth or not check_auth(auth.username, auth.password):
+            return jsonify({'error': 'Unauthorized access'}), 401
+        print("Authorized access")
+        return f(*args, **kwargs)
+    return decorated
+
+@app.route('/api/login', methods=['POST'])
+@requires_auth
+def login():
+    return jsonify({'message': 'Successfully logged in'})
 
 @app.route('/api/segment', methods=['POST'])
+@requires_auth
 def segment_image():
     # Check if an image file is present in the request
     if 'image' not in request.files:
@@ -15,10 +41,9 @@ def segment_image():
 
     image_file = request.files['image']
 
-    if image_file.filename == '': return jsonify({'error': 'Invalid image filename'}), 400
-    if image_file.content_type != 'image/png': return jsonify({'error': 'Invalid image file type, png is required'}), 400
-    if image_file.content_length == 0: return jsonify({'error': 'Empty image file'}), 400
-    
+    if image_file.filename == '':
+        return jsonify({'error': 'Invalid image filename'}), 400
+
     image_bytes = image_file.read()
     image_io = BytesIO(image_bytes)
     try: image = Image.open(image_io)
@@ -34,6 +59,7 @@ def segment_image():
     return send_file(masked_io, mimetype='image/png')
 
 @app.route('/api/classify', methods=['POST'])
+@requires_auth
 def classify_image():
     if 'image' not in request.files:
         return jsonify({'error': 'No image file found'}), 400
