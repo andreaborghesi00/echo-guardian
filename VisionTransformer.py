@@ -702,6 +702,7 @@ class TransformerUNet(nn.Module):
                 if i == len(self.decoder) - 1:
                     decoder_output = layer(decoder_output)
                 else:
+                    print(f'decoder_output shape {len(decoder_output)} decoder_channels shape {len(self.decoder_channels)}')
                     decoder_output = nn.Conv2d(decoder_output.size(1), self.decoder_channels[i+1], kernel_size=1, stride=1, padding=0)(decoder_output)
                     decoder_output = layer(decoder_output)
             else:
