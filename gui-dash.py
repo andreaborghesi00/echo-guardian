@@ -4,6 +4,7 @@ from skimage import data, draw
 import cv2 as cv
 
 import dash
+import dash_bootstrap_components as dbc
 from dash import Dash, dcc, html, Input, Output, State, no_update, callback, ctx
 from dash_extensions.enrich import DashProxy, LogTransform, DashLogger
 from dash.exceptions import PreventUpdate
@@ -12,7 +13,6 @@ import plotly.express as px
 from flask import g
 import requests
 from requests.auth import HTTPBasicAuth
-
 
 import io
 import base64
@@ -131,78 +131,80 @@ config_mask = {
     ],
 }
 
-app = Dash(__name__, suppress_callback_exceptions=True)
+app = Dash(__name__, external_stylesheets=[dbc.themes.BOOTSTRAP], suppress_callback_exceptions=True)
 
-main_layout = "somehting"
-login_layout = "something else"
-
-
-app.layout = html.Div([
-    html.H1("Medical Image Analysis", style={'textAlign': 'center'}),
-    html.Div(id='login-section'),  # A placeholder div for the login section
-    dcc.Input(id='dummy-input', value='initial-value', style={'display': 'none'}),
+login_layout = dbc.Container([
     html.Div([
-        dcc.Upload(
-            id='upload-data',
-            children=html.Div([
-                'Drag and Drop or ',
-                html.A('Select Files')
-            ]),
-            style={
-                'width': '100%',
-                'height': '60px',
-                'lineHeight': '60px',
-                'borderWidth': '1px',
-                'borderStyle': 'dashed',
-                'borderRadius': '5px',
-                'textAlign': 'center',
-                'margin': '10px'
-            },
-            multiple=True
-        ),
-        html.Div(id='output-data-upload', style={'marginBottom': '20px'}),
-    ], style={'marginBottom': '30px'}),
-    html.H3("Draw the Region Of Interest (ROI) on the image below:", style={'textAlign': 'center'}),
-    html.Div([
-        html.Div([
+        html.H1("Login", className="display-3"),
+        html.Hr(className="my-2"),
+        dbc.Row([
+            dbc.Col([
+                dbc.Label("Username", html_for="username-input"),
+                dbc.Input(
+                    id="username-input",
+                    type="text",
+                    placeholder="Enter your username",
+                    className="mb-3",
+                ),
+                dbc.Label("Password", html_for="password-input"),
+                dbc.Input(
+                    id="password-input",
+                    type="password",
+                    placeholder="Enter your password",
+                    className="mb-3",
+                ),
+                dbc.Button("Login", id="login-button", color="primary", className="mb-3"),
+                html.Div(id="login-output"),
+            ], width=6, className="mx-auto")
+        ]),
+    ])
+], fluid=True, className="py-3")
+
+main_layout = dbc.Container([
+    html.H1("Medical Image Analysis", className="display-3"),
+    html.Hr(className="my-2"),
+    dbc.Row([
+        dbc.Col([
+            dcc.Upload(
+                id='upload-data',
+                children=html.Div([
+                    'Drag and Drop or ',
+                    html.A('Select Files')
+                ]),
+                style={
+                    'width': '100%',
+                    'height': '60px',
+                    'lineHeight': '60px',
+                    'borderWidth': '1px',
+                    'borderStyle': 'dashed',
+                    'borderRadius': '5px',
+                    'textAlign': 'center',
+                    'margin': '10px'
+                },
+                multiple=True
+            ),
+            html.Div(id='output-data-upload', className="mt-3"),
+        ], width=12),
+    ], className="mt-3"),
+    html.Hr(className="my-2"),
+    dbc.Row([
+        dbc.Col([
+            html.H3("Draw the Region Of Interest (ROI) on the image below:"),
             dcc.Graph(id="ultrasound-image", figure=fig, config=config_image),
-        ], style={'width': '49%', 'display': 'inline-block', 'padding': '0 2px'}),
-        html.Div([
+        ], width=6),
+        dbc.Col([
+            html.H3("Segmenter Image"),
             dcc.Graph(id="segmenter-image", figure=fig_mask, config=config_mask),
-        ], style={'width': '49%', 'display': 'inline-block', 'padding': '0 2px'}),
-    ], style={'marginBottom': '30px', 'textAlign': 'center'}),
-    html.Div([
-        html.Button('Predict with your mask', id='classify-button', n_clicks=0, style={
-            'fontSize': '16px',
-            'padding': '10px 20px 10px 20px',
-            'marginRight': '10px',
-            'backgroundColor': '#4CAF50',
-            'color': 'white',
-            'border': 'none',
-            'borderRadius': '4px',
-            'cursor': 'pointer',
-            'transition': 'background-color 0.3s ease'
-        }),
-        html.Button('Predict with segmenter mask', id='classify-with-segmenter-button', n_clicks=0, style={
-            'fontSize': '16px',
-            'padding': '10px 20px 10px 20px',
-            'marginLeft': '10px',
-            'backgroundColor': '#4CAF50',
-            'color': 'white',
-            'border': 'none',
-            'borderRadius': '4px',
-            'cursor': 'pointer',
-            'transition': 'background-color 0.3s ease'
-        })
-        ,
-        html.Div(id='output-predict', style={
-            'marginTop': '20px',
-            'fontFamily': 'monospace',
-            'backgroundColor': '#f0f0f0',
-            'padding': '10px',
-            'borderRadius': '4px'
-        }),
-    ], style={'textAlign': 'center', 'marginTop': '30px'}),
+        ], width=6),
+    ], className="mt-3"),
+    html.Hr(className="my-2"),
+    dbc.Row([
+        dbc.Col([
+            dbc.Button("Predict with your mask", id="classify-button", color="primary", className="mr-2"),
+            dbc.Button("Predict with segmenter mask", id="classify-with-segmenter-button", color="secondary"),
+            html.Div(id="output-predict", className="mt-3"),
+        ], width=12, className="text-center"),
+    ], className="mt-3"),
     dcc.Store(id='image-store'),
     dcc.Store(id='mask-store'),
     dcc.Store(id='segmenter-store'),
@@ -211,62 +213,42 @@ app.layout = html.Div([
         id='confirm-auto-segmenter',
         message='Danger danger! Are you sure you want to continue?',
     ),
-], style={
-    'padding': '10px',
-    'backgroundColor': '#f5f5f5',
-    # 'backgroundImage': 'url("background.jpg")',
-    'backgroundSize': 'cover',
-    'backgroundPosition': 'center'
-})
+    dbc.Button("Logout", id="logout-button", color="danger", className="mt-3"),
+], fluid=True, className="py-3")
 
-login_section = html.Div([
-            dcc.Input(
-                id='username-input',
-                type='text',
-                placeholder='Enter your username',
-                style={'width': '200px', 'marginRight': '10px'}
-            ),
-            dcc.Input(
-                id='password-input',
-                type='password',
-                placeholder='Enter your password',
-                style={'width': '200px', 'marginRight': '10px'}
-            ),
-            html.Button('Login', id='login-button', n_clicks=0, style={
-                'fontSize': '16px',
-                'padding': '5px 10px',
-                'backgroundColor': '#4CAF50',
-                'color': 'white',
-                'border': 'none',
-                'borderRadius': '4px',
-                'cursor': 'pointer',
-                'transition': 'background-color 0.3s ease'
-            }),
-            html.Div(id='login-output', style={'marginTop': '10px'})
-        ], style={'marginBottom': '20px', 'textAlign': 'center'}),
+app.layout = html.Div([
+    dcc.Location(id='url', refresh=False),
+    html.Div(id='page-content'),
+    dcc.Store(id='auth-store', storage_type='session'),
+])
 
-logged_in_section = html.Div([
-            html.Button('Logout', id='logout-button', n_clicks=0, style={
-            'fontSize': '16px',
-            'padding': '5px 10px',
-            'backgroundColor': '#AF4C4C',
-            'color': 'white',
-            'border': 'none',
-            'borderRadius': '4px',
-            'cursor': 'pointer',
-            'transition': 'background-color 0.3s ease'
-        })
-    ], style={'marginBottom': '20px', 'textAlign': 'center'})
+@app.callback(Output('page-content', 'children', allow_duplicate=True),
+              [Input('url', 'pathname')],
+              [State('auth-store', 'data')],
+              prevent_initial_call='initial_duplicate')
+def display_page(pathname, auth):
+    if pathname == '/':
+        if auth is None or auth['username'] is None or auth['password'] is None:
+            return login_layout
+        else:
+            return main_layout
+    else:
+        return '404 Page Not Found'
 
-@callback(
+
+@app.callback(
     Output("mask-store", "data"),
+    Output("output-predict", "children", allow_duplicate=True),
     Input("ultrasound-image", "relayoutData"),
     State("image-store", "data"),
     prevent_initial_call=True,
 )
 def on_new_annotation(relayout_data, image):
     if "shapes" in relayout_data:
-        last_shape = relayout_data["shapes"][-1]
+        try:
+            last_shape = relayout_data["shapes"][-1]
+        except IndexError:
+            return no_update, "Please upload an image and draw an ROI before predicting."
         mask, mask_numpy= path_to_mask(last_shape["path"], np.array(image).shape)
         # squeeze the first dimension
         return mask_numpy
@@ -274,7 +256,7 @@ def on_new_annotation(relayout_data, image):
         raise PreventUpdate
 
 
-@callback(
+@app.callback(
     Output("ultrasound-image", "figure"),
     Output("image-store", "data"),
     Output("segmenter-image", "figure"),
@@ -323,11 +305,11 @@ def on_upload_data(contents, filenames, auth):
         # If no figures were created, return an empty figure
         if not figures:
             raise PreventUpdate
-        return figures[0], img_numpy, fig_masks[0], mask_numpy, ""
+        return figures[0], img_numpy, fig_masks[0], mask_numpy
     raise PreventUpdate
 
 
-@callback(
+@app.callback(
     Output("output-predict", "children", allow_duplicate=True),
     Output("confirm-auto-segmenter", "displayed"),
     Input("classify-button", "n_clicks"), # not actually used, it serves as a trigger
@@ -344,7 +326,7 @@ def on_predict(n_clicks_classify, n_clicks_classify_segmenter, confirm_danger_cl
 
     if ctx.triggered_id == "classify-button":
         if image is None or mask is None:
-            return "Please upload an image and draw an ROI before predicting."
+            return "Please upload an image and draw an ROI before predicting.", False
         else:
             try:
                 if not isinstance(image, np.ndarray): image = np.array(image)
@@ -403,56 +385,45 @@ def on_predict(n_clicks_classify, n_clicks_classify_segmenter, confirm_danger_cl
             return f"Error: {str(e)}", False
 
 
-# don't judge me for this first render
 @app.callback(
-        Output('login-section', 'children', allow_duplicate=True),
-        Input('dummy-input', 'value'),  # A dummy input to trigger the callback
-        suppress_callback_exceptions=True,
-        prevent_initial_call='initial duplicate',
-)
-def render_first_login_section(dummy):
-    global login_section
-    return login_section
-
-@app.callback(
-    Output('login-section', 'children', allow_duplicate=True),
+    Output('page-content', 'children', allow_duplicate=True),
     Output('auth-store', 'data'),
     Input('login-button', 'n_clicks'),
     State('username-input', 'value'),
     State('password-input', 'value'),
     prevent_initial_call=True,
 )
-def render_login_section(n_clicks, username, password):
-    global login_section, logged_in_section
-    if n_clicks is None: raise PreventUpdate
+def login(n_clicks, username, password):
+    if n_clicks is None:
+        raise PreventUpdate
 
     if not username or not password:
-        return login_section, None
+        return login_layout, None
 
     hashed_pw = hashlib.sha256(password.encode()).hexdigest()
     auth = HTTPBasicAuth(username, hashed_pw)
     response = requests.post('http://localhost:5000/api/login', auth=auth)
     if response.status_code == 200:
         print('Successfully logged in')
-        return logged_in_section, {'username': username, 'password': hashed_pw}
+        return main_layout, {'username': username, 'password': hashed_pw}
     else:
         print('Unauthorized access')
-        return login_section, None
+        return login_layout, None
+
 
 @app.callback(
-    Output('login-section', 'children'),
+    Output('page-content', 'children', allow_duplicate=True),
     Input('logout-button', 'n_clicks'),
     State('auth-store', 'data'),
     prevent_initial_call=True,
 )
-def on_logout(n_clicks, auth):
-    if n_clicks > 0:
+def logout(n_clicks, auth):
+    if n_clicks is not None and n_clicks > 0:
         auth['username'], auth['password'] = None, None
-        return login_section
-    else: raise PreventUpdate
-
-
-
-
-if __name__ == "__main__":
-    app.run(debug=True)
+        return login_layout
+    else:
+        raise PreventUpdate
+    
+        
+if __name__ == '__main__':
+    app.run_server(debug=True)
