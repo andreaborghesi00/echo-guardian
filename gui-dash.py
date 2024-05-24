@@ -93,6 +93,43 @@ fig = px.imshow(img)
 fig_mask = px.imshow(mask)
 fig.update_layout(dragmode='drawclosedpath')
 
+config_image = {
+    "modeBarButtonsToAdd": [
+        "drawclosedpath",
+        "drawcircle",
+        "drawrect",
+        "eraseshape",
+    ], 
+    "displaylogo": False,
+    "modeBarButtonsToRemove": [
+        "zoomIn2d",
+        "zoomOut2d",
+        "autoScale2d",
+        "resetScale2d",
+        "hoverClosestCartesian",
+        "hoverCompareCartesian",
+        "toggleSpikelines",
+        "pan2d",
+        "lasso2d",
+        "select2d",
+    ],
+}
+
+config_mask = {
+    "displaylogo": False,
+    "modeBarButtonsToRemove": [
+        "zoomIn2d",
+        "zoomOut2d",
+        "autoScale2d",
+        "resetScale2d",
+        "hoverClosestCartesian",
+        "hoverCompareCartesian",
+        "toggleSpikelines",
+        "pan2d",
+        "lasso2d",
+        "select2d",
+    ],
+}
 
 app = Dash(__name__, suppress_callback_exceptions=True)
 
@@ -124,10 +161,10 @@ app.layout = html.Div([
     html.H3("Draw the Region Of Interest (ROI) on the image below:", style={'textAlign': 'center'}),
     html.Div([
         html.Div([
-            dcc.Graph(id="ultrasound-image", figure=fig),
+            dcc.Graph(id="ultrasound-image", figure=fig, config=config_image),
         ], style={'width': '40%', 'display': 'inline-block', 'padding': '0 20px'}),
         html.Div([
-            dcc.Graph(id="segmenter-image", figure=fig_mask),
+            dcc.Graph(id="segmenter-image", figure=fig_mask, config=config_mask),
         ], style={'width': '40%', 'display': 'inline-block', 'padding': '0 20px'}),
     ], style={'marginBottom': '30px', 'textAlign': 'center'}),
     html.Div([
@@ -227,8 +264,9 @@ def on_upload_data(contents, filenames, auth):
             mask_bytes = response.content
             mask = Image.open(io.BytesIO(mask_bytes))
             mask_numpy = np.array(mask)
+            mask_numpy = ndimage.binary_fill_holes(mask_numpy)
 
-            fig_masks.append(px.imshow(mask))
+            fig_masks.append(px.imshow(mask_numpy))
             fig_image = px.imshow(img_numpy, title=filename)
             fig_image.update_layout(dragmode='drawclosedpath')
             figures.append(fig_image)
