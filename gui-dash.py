@@ -133,6 +133,10 @@ config_mask = {
 
 app = Dash(__name__, suppress_callback_exceptions=True)
 
+main_layout = "somehting"
+login_layout = "something else"
+
+
 app.layout = html.Div([
     html.H1("Medical Image Analysis", style={'textAlign': 'center'}),
     html.Div(id='login-section'),  # A placeholder div for the login section
@@ -203,6 +207,10 @@ app.layout = html.Div([
     dcc.Store(id='mask-store'),
     dcc.Store(id='segmenter-store'),
     dcc.Store(id='auth-store'),
+    dcc.ConfirmDialog(
+        id='confirm-auto-segmenter',
+        message='Danger danger! Are you sure you want to continue?',
+    ),
 ], style={
     'padding': '10px',
     'backgroundColor': '#f5f5f5',
@@ -277,7 +285,7 @@ def on_new_annotation(relayout_data, image):
     prevent_initial_call=True,
 )
 def on_upload_data(contents, filenames, auth):
-    if auth is None: no_update, no_update, no_update, no_update, "Please login first."
+    if auth is None or auth['username'] is None or auth['password'] is None: raise PreventUpdate
 
     if contents is not None:
         figures = []
@@ -315,22 +323,24 @@ def on_upload_data(contents, filenames, auth):
         # If no figures were created, return an empty figure
         if not figures:
             raise PreventUpdate
-        return figures[0], img_numpy, fig_masks[0], mask_numpy
+        return figures[0], img_numpy, fig_masks[0], mask_numpy, ""
     raise PreventUpdate
 
 
 @callback(
-    Output("output-predict", "children"),
+    Output("output-predict", "children", allow_duplicate=True),
+    Output("confirm-auto-segmenter", "displayed"),
     Input("classify-button", "n_clicks"), # not actually used, it serves as a trigger
     Input("classify-with-segmenter-button", "n_clicks"), # same as above
+    Input("confirm-auto-segmenter", "submit_n_clicks"),
     State("image-store", "data"),
     State("mask-store", "data"),
     State("segmenter-store", "data"),
     State("auth-store", "data"),
     prevent_initial_call=True,
 )
-def on_predict(n_clicks_classify, n_clicks_classify_segmenter, image, mask, segmenter_mask, auth):
-    if auth is None: return "Please login first."
+def on_predict(n_clicks_classify, n_clicks_classify_segmenter, confirm_danger_clicks,image, mask, segmenter_mask, auth):
+    if auth is None: return "Please login first.", False
 
     if ctx.triggered_id == "classify-button":
         if image is None or mask is None:
@@ -358,38 +368,40 @@ def on_predict(n_clicks_classify, n_clicks_classify_segmenter, image, mask, segm
 
                 class_pred = response.json()['prediction']
 
-                return f'Predicted class with user segmentation:\n {f"Malignant {class_pred*100:.2f}%" if np.round(class_pred) == 1 else f"Benign {(1-class_pred)*100:.2f}%"}'
+                return f'Predicted class with user segmentation:\n {f"Malignant {class_pred*100:.2f}%" if np.round(class_pred) == 1 else f"Benign {(1-class_pred)*100:.2f}%"}', False
             except requests.exceptions.RequestException as e:
-                return f"Error: {str(e)}"
+                return f"Error: {str(e)}", False
             
     elif ctx.triggered_id == "classify-with-segmenter-button":
         if image is None:
             return "Please upload an image before predicting."
-        else:
-            try:
-                if not isinstance(image, np.ndarray): image = np.array(image) # for some reason it's a python list although i save it as numpy array
-                if not isinstance(segmenter_mask, np.ndarray): segmenter_mask = np.array(segmenter_mask) # same here
-                
-                image = Image.fromarray(image.astype('uint8')).convert("L") 
-                mask = Image.fromarray(segmenter_mask.astype('uint8')).convert("L") 
+        else:            
+            return f"", True
+    elif ctx.triggered_id == "confirm-auto-segmenter":
+        try:
+            if not isinstance(image, np.ndarray): image = np.array(image) # for some reason it's a python list although i save it as numpy array
+            if not isinstance(segmenter_mask, np.ndarray): segmenter_mask = np.array(segmenter_mask) # same here
+            
+            image = Image.fromarray(image.astype('uint8')).convert("L") 
+            mask = Image.fromarray(segmenter_mask.astype('uint8')).convert("L") 
 
-                image_bytes = io.BytesIO()
-                image.save(image_bytes, format='PNG')
-                image_bytes.seek(0)
+            image_bytes = io.BytesIO()
+            image.save(image_bytes, format='PNG')
+            image_bytes.seek(0)
 
-                mask_bytes = io.BytesIO()
-                mask.save(mask_bytes, format='PNG')
-                mask_bytes.seek(0)
+            mask_bytes = io.BytesIO()
+            mask.save(mask_bytes, format='PNG')
+            mask_bytes.seek(0)
 
-                files = {'image': image_bytes, 'mask': mask_bytes}
-                response = requests.post('http://localhost:5000/api/classify', files=files, auth=HTTPBasicAuth(username=auth['username'], password=auth['password']))
-                response.raise_for_status()
+            files = {'image': image_bytes, 'mask': mask_bytes}
+            response = requests.post('http://localhost:5000/api/classify', files=files, auth=HTTPBasicAuth(username=auth['username'], password=auth['password']))
+            response.raise_for_status()
 
-                class_pred = response.json()['prediction']
+            class_pred = response.json()['prediction']
+            return f'Predicted class with auto segmentation:\n {f"Malignant {class_pred*100:.2f}%" if np.round(class_pred) == 1 else f"Benign {(1-class_pred)*100:.2f}%"}', False
+        except Exception as e:
+            return f"Error: {str(e)}", False
 
-                return f'Predicted class with segmenter ROI:\n {f"Malignant {class_pred*100:.2f}%" if np.round(class_pred) == 1 else f"Benign {(1-class_pred)*100:.2f}%"}'
-            except Exception as e:
-                return f"Error: {str(e)}"
 
 # don't judge me for this first render
 @app.callback(
