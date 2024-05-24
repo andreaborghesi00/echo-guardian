@@ -11,7 +11,7 @@ from functools import wraps
 app = Flask(__name__)
 auth = HTTPBasicAuth()
 users = {
-    "admin": hashlib.md5("trental".encode()).hexdigest()
+    "admin": hashlib.sha256("trental".encode()).hexdigest()
 }
 
 def check_auth(username, password):

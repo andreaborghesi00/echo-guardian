@@ -307,8 +307,8 @@ def on_upload_data(contents, filenames, auth):
 
             print(mask_numpy.dtype)
 
-            fig_masks.append(px.imshow(mask_numpy, title="Automatic segmenter mask"))
-            fig_image = px.imshow(img_numpy, title=filename)
+            fig_masks.append(px.imshow(mask_numpy, title="Automatic segmenter mask", color_continuous_scale='gray'))
+            fig_image = px.imshow(img_numpy, title=filename, color_continuous_scale='gray')
             fig_image.update_layout(dragmode='drawclosedpath')
             figures.append(fig_image)
 
@@ -417,7 +417,7 @@ def render_login_section(n_clicks, username, password):
     if not username or not password:
         return login_section, None
 
-    hashed_pw = hashlib.md5(password.encode()).hexdigest()
+    hashed_pw = hashlib.sha256(password.encode()).hexdigest()
     auth = HTTPBasicAuth(username, hashed_pw)
     response = requests.post('http://localhost:5000/api/login', auth=auth)
     if response.status_code == 200:
