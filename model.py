@@ -412,10 +412,10 @@ segmentation_train_augmentation = A.Compose([
     A.HorizontalFlip(p=0.5),
     A.VerticalFlip(p=0.5),
     A.Transpose(p=0.5),
+    A.GaussNoise(var_limit=(5, 20), p=0.5),
     A.ShiftScaleRotate(shift_limit=0.1, scale_limit=0.2, rotate_limit=25, p=0.5),
-    A.RandomGamma(p=0.5),
-    A.GaussNoise(var_limit=(5/255, 20/255), p=0.5),
-    A.Blur(blur_limit=7, p=0.5),
+    A.Blur(blur_limit=3, p=0.5),
+    #A.RandomGamma(p=0.5),
     #A.RandomBrightnessContrast(brightness_limit=0.2, contrast_limit=0.2, p=0.5),
     A.ElasticTransform(alpha=1.0, sigma=50.0, alpha_affine=50.0, p=0.5),
     A.GridDistortion(num_steps=5, distort_limit=0.3, p=0.5),
@@ -490,6 +490,36 @@ def plot_loss(train_losses, val_losses):
     plt.title(f"Loss - {config}")
     plt.legend()
     plt.show()
+
+
+# %%
+import pydensecrf.densecrf as dcrf
+import numpy as np
+from pydensecrf.utils import unary_from_softmax, create_pairwise_bilateral, create_pairwise_gaussian
+
+def apply_crf(image, output, iterations=5):
+    # Assuming the image is in the shape (C, H, W) and output is in the shape (n_classes, H, W)
+    c, h, w = image.shape[-3:]
+    n_classes = output.shape[0]
+    
+    # Reshape the output to (n_classes, H * W)
+    output = output.reshape((n_classes, -1))
+    
+    d = dcrf.DenseCRF2D(w, h, n_classes)
+    unary = unary_from_softmax(output)
+    unary = np.ascontiguousarray(unary)
+    d.setUnaryEnergy(unary)
+    
+    d.addPairwiseGaussian(sxy=3, compat=3)
+    
+    # Create pairwise bilateral energy
+    pairwise_energy = create_pairwise_bilateral(sdims=(10, 10), schan=(0.01,), img=image.transpose((1, 2, 0)), chdim=2)
+    d.addPairwiseEnergy(pairwise_energy, compat=10)
+    
+    q = d.inference(iterations)
+    res = np.argmax(q, axis=0).reshape((h, w))
+    
+    return res
 
 
 # %%
@@ -686,41 +716,37 @@ class DiceLoss(nn.Module):
 
 
 # %%
-from VisionTransformer import VisionTransformer, TransformerEncoder, TransformerUNet
-# Usage example
-# transformer_vision = VisionTransformer(
-#     img_size=256,
-#     patch_size=16,
-#     in_chans=1,
-#     embed_dim=1024,  # Increase the embedding dimension
-#     depth=16,  # Increase the number of transformer blocks
-#     n_heads=16,  # Adjust the number of attention heads accordingly
-#     mlp_ratio=4,
-#     qkv_bias=True,
-#     p=0.,
-#     attn_p=0.,
-# )
+class CombinedLoss(nn.Module):
+    def __init__(self, weight_dice=0.5, weight_ce=0.5):
+        super(CombinedLoss, self).__init__()
+        self.dice_loss = FocalLoss()
+        self.cross_entropy_loss = nn.BCEWithLogitsLoss()
+        self.weight_dice = weight_dice
+        self.weight_ce = weight_ce
 
-#Forward pass
-#transformer_vision.to(device)
-#input_image = torch.randn(1, 1, 256, 256).to(device)
-#output = transformer_vision(input_image)
-#print(output.shape)  # Output shape: (1, 1, 256, 256)
+    def forward(self, inputs, targets):
+        dice_loss = self.dice_loss(inputs, targets)
+        ce_loss = self.cross_entropy_loss(inputs, targets)
+        combined_loss = self.weight_dice * dice_loss + self.weight_ce * ce_loss
+        return combined_loss
 
+
+# %%
+from VisionTransformer import TransformerEncoder, TransformerUNet
 
 
 # Create the Transformer encoder
 encoder = TransformerEncoder(
     img_size=256,
-    patch_size=16,
+    patch_size=8,
     in_chans=1,
     embed_dim=768,
     depth=12,
-    n_heads=12,
+    n_heads=16,
     mlp_ratio=4,
     qkv_bias=True,
-    p=0.,
-    attn_p=0.,
+    p=0.1,
+    attn_p=0.1,
 )
 
 config = {
@@ -733,7 +759,7 @@ config = {
     'patch_size': 16,
     'embed_dim': 768,
     'depth': 12,
-    'n_heads': 12,
+    'n_heads': 16,
     'mlp_ratio': 4,
     'qkv_bias': True,
     'p': 0.,
@@ -741,9 +767,9 @@ config = {
 }
 # Create the Transformer U-Net model
 #transformer_vision = TransformerUNet(encoder, out_chans=1)
-transformer_vision = TransformerUNet(config)
+transformer_unet = TransformerUNet(config)
 
-transformer_vision.to(device)
+transformer_unet.to(device)
 
 # %%
 import torch.optim as optim
@@ -760,7 +786,7 @@ config = {
 }
 
 #segmentation_model = smp.create_model(**config)
-segmentation_model = transformer_vision
+segmentation_model = transformer_unet
 
 segmentation_model.to(device)
 
@@ -789,25 +815,19 @@ scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=epochs, 
 #scheduler = OneCycleLR(optimizer, max_lr=learning_rate, steps_per_epoch=len(train_segment_dl), epochs=epochs)
 
 # Regularization in the transformer blocks and decoder layers
-for block in transformer_vision.encoder.blocks:
-    block.mlp.add_module('dropout', nn.Dropout(p=0.1))
+# for block in transformer_unet.encoder.blocks:
+#     block.mlp.add_module('dropout', nn.Dropout(p=0.1))
 
-for layer in transformer_vision.decoder:
-    if isinstance(layer, nn.Sequential):
-        layer.add_module('dropout', nn.Dropout(p=0.1))
+# for layer in transformer_unet.decoder:
+#     if isinstance(layer, nn.Sequential):
+#         layer.add_module('dropout', nn.Dropout(p=0.1))
 
 loss_criterion = nn.BCEWithLogitsLoss()
+#loss_criterion = CombinedLoss(weight_dice=0.3, weight_ce=0.7)
 #loss_criterion = FocalLoss()
 # use the dice loss
 #loss_criterion = DiceLoss()
 
-
-config.update({
-    'optimizer': 'AdamW',
-    'lr': learning_rate,
-    'weight_decay': weight_decay,
-    'epochs': epochs,
-})
 if to_train:
     train_segmentation(segmentation_model, train_segment_dl, val_segment_dl, optimizer, loss_criterion, scheduler, epochs=epochs, continue_training='')
 
@@ -855,7 +875,7 @@ from UnetSegmenter import UnetSegmenter
 from PIL import Image
 
 classifier = NNClassifier('models/best_model.pth')
-segmenter = UnetSegmenter('models/net_segment_1_v2.pth') 
+segmenter = UnetSegmenter('models/segmentation_model_.pth') 
 
 
 # test of the classifier and segmenter by opening an image and mask from file
@@ -942,6 +962,55 @@ plt.show()
 
 
 
+
+# %%
+from cryptography.fernet import Fernet
+from torchvision import io
+
+def encrypt_model(model_path, key):
+    
+    model = torch.load(model_path)
+    model_bytes = torch.save(model, None)
+    cipher = Fernet(key)
+    encrypted_model_bytes = cipher.encrypt(model_bytes)
+    
+    with open('encrypted_model.pth', 'wb') as file:
+        file.write(encrypted_model_bytes)
+
+key = b'' # has to be 32 url-safe base64-encoded bytes, pad if not
+
+if len(key) < 32:
+    key += b'=' * (32 - len(key))
+elif len(key) > 32:
+    key = key[:32]
+encrypt_model('model.pth', key)
+
+
+# %%
+def decrypt_model(encrypted_model_path, key):
+    with open(encrypted_model_path, 'rb') as file:
+        encrypted_model_bytes = file.read()
+    
+    cipher = Fernet(key)
+    try:
+        decrypted_model_bytes = cipher.decrypt(encrypted_model_bytes)
+        model = torch.load(io.BytesIO(decrypted_model_bytes))
+        return model
+    except:
+        print("Invalid key or corrupted model file.")
+        return None
+
+key = b''
+
+if len(key) < 32:
+    key += b'=' * (32 - len(key))
+elif len(key) > 32:
+    key = key[:32]
+
+model = decrypt_model('encrypted_model.pth', key)
+
+if model is not None:
+    model.eval()
 
 # %% [markdown]
 # ----
