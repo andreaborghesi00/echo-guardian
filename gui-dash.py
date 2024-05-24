@@ -223,6 +223,7 @@ main_layout = dbc.Container([
         id='confirm-auto-segmenter',
         message='Danger danger! Are you sure you want to continue?',
     ),
+    html.Div(id='dummy-input', children=''),
     
 ], fluid=True, className="py-3")
 
@@ -242,6 +243,10 @@ def display_page(pathname, auth):
             return login_layout
         else:
             return main_layout
+    elif pathname == '/login':
+        return login_layout
+    elif pathname == '/main':
+        return main_layout
     else:
         return '404 Page Not Found'
 
@@ -409,19 +414,19 @@ def on_predict(n_clicks_classify, n_clicks_classify_segmenter, confirm_danger_cl
 def login(n_clicks, username, password):
     if n_clicks is None:
         raise PreventUpdate
-
-    if not username or not password:
-        return login_layout, None, "Unauthorized access"
-    
-    hashed_pw = hashlib.sha256(password.encode()).hexdigest()
-    auth = HTTPBasicAuth(username, hashed_pw)
-    response = requests.post('http://localhost:5000/api/login', auth=auth)
-    if response.status_code == 200:
-        print('Successfully logged in')
-        return main_layout, {'username': username, 'password': hashed_pw}, ""
     else:
-        print('Unauthorized access')
-        return login_layout, None, "Unauthorized access"
+        if not username or not password:
+            return login_layout, None, "Unauthorized access"
+        
+        hashed_pw = hashlib.sha256(password.encode()).hexdigest()
+        auth = HTTPBasicAuth(username, hashed_pw)
+        response = requests.post('http://localhost:5000/api/login', auth=auth)
+        if response.status_code == 200:
+            print('Successfully logged in')
+            return main_layout, {'username': username, 'password': hashed_pw}, ""
+        else:
+            print('Unauthorized access')
+            return login_layout, None, "Unauthorized access"
 
 
 @app.callback(
@@ -437,6 +442,17 @@ def logout(n_clicks, auth):
     else:
         raise PreventUpdate
     
+@app.callback(
+    Output('page-content', 'children', allow_duplicate=True),
+    Input('dummy-input', 'children'),
+    State('auth-store', 'data'),
+    prevent_initial_call='initial_duplicate'
+)
+def check_if_logged_in(dummy, auth):
+    if auth is None or auth['username'] is None or auth['password'] is None:
+        return login_layout
+    else:
+        return main_layout
         
 if __name__ == '__main__':
     app.run_server(debug=True)
