@@ -87,7 +87,7 @@ def segment_and_classify(image):
     roi_pred = predict_roi(image)
     return predict_class(image, roi_pred)
 
-img = data.chelsea()
+img = data.immunohistochemistry()
 mask = np.zeros(img.shape, dtype=bool)
 fig = px.imshow(img)
 fig_mask = px.imshow(mask)
@@ -145,6 +145,7 @@ login_layout = dbc.Container([
                     type="text",
                     placeholder="Enter your username",
                     className="mb-3",
+                    value=""
                 ),
                 dbc.Label("Password", html_for="password-input"),
                 dbc.Input(
@@ -152,16 +153,25 @@ login_layout = dbc.Container([
                     type="password",
                     placeholder="Enter your password",
                     className="mb-3",
+                    value=""
                 ),
                 dbc.Button("Login", id="login-button", color="primary", className="mb-3"),
                 html.Div(id="login-output"),
             ], width=6, className="mx-auto")
         ]),
-    ])
+    ]),
+    dcc.Store(id='auth-store', storage_type='session'),
 ], fluid=True, className="py-3")
 
 main_layout = dbc.Container([
-    html.H1("Medical Image Analysis", className="display-3"),
+    dbc.Row([
+        dbc.Col([
+            html.H1("Medical Image Analysis", className="display-3"),
+        ], width=10, className="mr-auto"),
+        dbc.Col([
+            dbc.Button("Logout", id="logout-button", color="danger", className="text-center", style={"margin-top": "20px", "margin-left": "30%"}),
+        ], width=2, className="ml-auto"),
+    ], className="mb-3"),
     html.Hr(className="my-2"),
     dbc.Row([
         dbc.Col([
@@ -193,15 +203,15 @@ main_layout = dbc.Container([
             dcc.Graph(id="ultrasound-image", figure=fig, config=config_image),
         ], width=6),
         dbc.Col([
-            html.H3("Segmenter Image"),
+            html.H3("Automatic segmenter mask:"),
             dcc.Graph(id="segmenter-image", figure=fig_mask, config=config_mask),
         ], width=6),
     ], className="mt-3"),
     html.Hr(className="my-2"),
     dbc.Row([
         dbc.Col([
-            dbc.Button("Predict with your mask", id="classify-button", color="primary", className="mr-2"),
-            dbc.Button("Predict with segmenter mask", id="classify-with-segmenter-button", color="secondary"),
+            dbc.Button("Predict with your mask", id="classify-button", color="primary", className="mr-2", style={"margin-right": "10px"}),
+            dbc.Button("Predict with segmenter mask", id="classify-with-segmenter-button", color="secondary", className="ml-2", style={"margin-left": "10px"}),
             html.Div(id="output-predict", className="mt-3"),
         ], width=12, className="text-center"),
     ], className="mt-3"),
@@ -213,7 +223,7 @@ main_layout = dbc.Container([
         id='confirm-auto-segmenter',
         message='Danger danger! Are you sure you want to continue?',
     ),
-    dbc.Button("Logout", id="logout-button", color="danger", className="mt-3"),
+    
 ], fluid=True, className="py-3")
 
 app.layout = html.Div([
@@ -245,13 +255,15 @@ def display_page(pathname, auth):
 )
 def on_new_annotation(relayout_data, image):
     if "shapes" in relayout_data:
+        if image is None: return no_update, "Please upload an image before predicting."
         try:
             last_shape = relayout_data["shapes"][-1]
         except IndexError:
             return no_update, "Please upload an image and draw an ROI before predicting."
+        
         mask, mask_numpy= path_to_mask(last_shape["path"], np.array(image).shape)
         # squeeze the first dimension
-        return mask_numpy
+        return mask_numpy, ""
     else:
         raise PreventUpdate
 
@@ -356,7 +368,7 @@ def on_predict(n_clicks_classify, n_clicks_classify_segmenter, confirm_danger_cl
             
     elif ctx.triggered_id == "classify-with-segmenter-button":
         if image is None:
-            return "Please upload an image before predicting."
+            return "Please upload an image before predicting.", False
         else:            
             return f"", True
     elif ctx.triggered_id == "confirm-auto-segmenter":
@@ -388,6 +400,7 @@ def on_predict(n_clicks_classify, n_clicks_classify_segmenter, confirm_danger_cl
 @app.callback(
     Output('page-content', 'children', allow_duplicate=True),
     Output('auth-store', 'data'),
+    Output('login-output', 'children'),
     Input('login-button', 'n_clicks'),
     State('username-input', 'value'),
     State('password-input', 'value'),
@@ -398,17 +411,17 @@ def login(n_clicks, username, password):
         raise PreventUpdate
 
     if not username or not password:
-        return login_layout, None
-
+        return login_layout, None, "Unauthorized access"
+    
     hashed_pw = hashlib.sha256(password.encode()).hexdigest()
     auth = HTTPBasicAuth(username, hashed_pw)
     response = requests.post('http://localhost:5000/api/login', auth=auth)
     if response.status_code == 200:
         print('Successfully logged in')
-        return main_layout, {'username': username, 'password': hashed_pw}
+        return main_layout, {'username': username, 'password': hashed_pw}, ""
     else:
         print('Unauthorized access')
-        return login_layout, None
+        return login_layout, None, "Unauthorized access"
 
 
 @app.callback(
@@ -419,7 +432,7 @@ def login(n_clicks, username, password):
 )
 def logout(n_clicks, auth):
     if n_clicks is not None and n_clicks > 0:
-        auth['username'], auth['password'] = None, None
+        # auth['username'], auth['password'] = None, None
         return login_layout
     else:
         raise PreventUpdate
