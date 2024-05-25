@@ -82,8 +82,10 @@ def classify_image():
     mask_io = BytesIO(mask_bytes)
     image = Image.open(image_io)
     mask = Image.open(mask_io)
-    prediction = classifier.predict(image=image, mask=mask)
-
+    try:
+        prediction = classifier.predict(image=image, mask=mask)
+    except ValueError as e:
+        return jsonify({'error': str(e)}), 400
     return jsonify({'prediction': prediction.item()})
 
 if __name__ == '__main__':

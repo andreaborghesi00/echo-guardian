@@ -367,6 +367,8 @@ def on_predict(n_clicks_classify, n_clicks_classify_segmenter, confirm_danger_cl
 
                 files = {'image': image_bytes, 'mask': mask_bytes}
                 response = requests.post('http://localhost:5000/api/classify', files=files, auth=HTTPBasicAuth(username=auth['username'], password=auth['password']))
+                if response.status_code == 500:
+                    return "Error: Please draw a valid ROI before predicting.", False
                 response.raise_for_status()
 
                 class_pred = response.json()['prediction']
