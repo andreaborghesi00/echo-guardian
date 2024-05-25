@@ -191,7 +191,8 @@ main_layout = dbc.Container([
                     'textAlign': 'center',
                     'margin': '10px'
                 },
-                multiple=True
+                multiple=False,
+                accept='image/png'
             ),
             html.Div(id='output-data-upload', className="mt-3"),
         ], width=12),
@@ -278,51 +279,54 @@ def on_new_annotation(relayout_data, image):
     Output("image-store", "data"),
     Output("segmenter-image", "figure"),
     Output("segmenter-store", "data"),
+    Output("output-predict", "children", allow_duplicate=True),
     Input("upload-data", "contents"),
     State("upload-data", "filename"),
     State("auth-store", "data"),
     prevent_initial_call=True,
 )
-def on_upload_data(contents, filenames, auth):
+def on_upload_data(contents, filename, auth):
     if auth is None or auth['username'] is None or auth['password'] is None: raise PreventUpdate
 
     if contents is not None:
-        figures = []
-        fig_masks = []
+        if not filename.endswith('png'): return no_update, no_update, no_update, no_update, "File type unsupported, please upload a valid image file."
         
-        for content, filename in zip(contents, filenames):
-            _, content_string = content.split(',')
-            decoded_data = base64.b64decode(content_string)
+        _, content_string = contents.split(',')
+        decoded_data = base64.b64decode(content_string)
 
-            img = Image.open(io.BytesIO(decoded_data)).convert("L")
-            img_bytes = io.BytesIO()
-            img.save(img_bytes, format='PNG')
-            img_bytes.seek(0)
+        # try: 
+        img = Image.open(io.BytesIO(decoded_data)).convert("L")
+        # except Exception as e:
+        #     return no_update, no_update, no_update, no_update, f"File type unsupported, please upload a valid image file."
+        
+        img_bytes = io.BytesIO()
+        img.save(img_bytes, format='PNG')
+        img_bytes.seek(0)
 
-            img_numpy = np.array(img)
-            img_numpy = cv.resize(img_numpy, (256, 256))
+        img_numpy = np.array(img)
+        img_numpy = cv.resize(img_numpy, (256, 256))
 
-            files = {'image': ("Image.png", img_bytes, "image/png")}
+        files = {'image': ("Image.png", img_bytes, "image/png")}
 
-            response = requests.post('http://localhost:5000/api/segment', files=files, auth=HTTPBasicAuth(username=auth['username'], password=auth['password']))
-            response.raise_for_status()
+        response = requests.post('http://localhost:5000/api/segment', files=files, auth=HTTPBasicAuth(username=auth['username'], password=auth['password']))
+        response.raise_for_status()
 
-            mask_bytes = response.content
-            mask = Image.open(io.BytesIO(mask_bytes))
-            mask_numpy = np.array(mask)
-            mask_numpy = ndimage.binary_fill_holes(mask_numpy)
+        mask_bytes = response.content
+        mask = Image.open(io.BytesIO(mask_bytes))
+        mask_numpy = np.array(mask)
+        mask_numpy = ndimage.binary_fill_holes(mask_numpy)
 
-            print(mask_numpy.dtype)
+        print(mask_numpy.dtype)
 
-            fig_masks.append(px.imshow(mask_numpy, title="Automatic segmenter mask", color_continuous_scale='gray'))
-            fig_image = px.imshow(img_numpy, title=filename, color_continuous_scale='gray')
-            fig_image.update_layout(dragmode='drawclosedpath')
-            figures.append(fig_image)
+        fig_mask = (px.imshow(mask_numpy, title="Automatic segmenter mask", color_continuous_scale='gray'))
+        fig_image = px.imshow(img_numpy, title=filename, color_continuous_scale='gray')
+        fig_image.update_layout(dragmode='drawclosedpath')
+        # figures.append(fig_image)
 
         # If no figures were created, return an empty figure
-        if not figures:
+        if not fig_image:
             raise PreventUpdate
-        return figures[0], img_numpy, fig_masks[0], mask_numpy
+        return fig_image, img_numpy, fig_mask, mask_numpy, ""
     raise PreventUpdate
 
 
