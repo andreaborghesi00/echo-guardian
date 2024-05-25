@@ -268,7 +268,7 @@ def train(model, train_loader, val_loader, optimizer, loss_criterion, epochs=10,
         best_scheduler.load_state_dict(checkpoint['scheduler_state_dict'])
         best_optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
         
-        print(f"Found best model, calculating metrics...")
+        print(f"Found best model, computing metrics...")
         best_macro, best_micro, best_spec, best_sens = validate(net=best_model, dataloader=val_loader)
         print(f'Best model: Macro Acc: {best_macro:.3f}, Micro Acc: {best_micro:.3f}, Specificity {best_spec:.3f}, Sensitivity {best_sens:.3f}')
         del best_model, best_optimizer, best_criterion, best_scheduler, checkpoint
@@ -340,8 +340,6 @@ def train(model, train_loader, val_loader, optimizer, loss_criterion, epochs=10,
             'loss': loss_criterion,
             'optimizer': optimizer,
         }, f'./models/net_{continue_training}.pth')
-
-
 
 # %%
 simple_net = SimpleNet().to(device)
@@ -535,7 +533,7 @@ def train_segmentation(model, train_loader, val_loader, optimizer, loss_criterio
         best_criterion.load_state_dict(checkpoint['loss_state_dict'])
         best_optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
 
-        print(f"Found best model, calculating metrics...")
+        print(f"Found best model, computing metrics...")
         best_iou, best_dice = validate_segmentation(best_model, val_loader)
         print(f'Best model: IoU: {best_iou:.3f}, Dice: {best_dice:.3f}')
         del best_model, best_optimizer, best_criterion, checkpoint
@@ -764,7 +762,7 @@ segmentation_model = transformer_vision
 
 segmentation_model.to(device)
 
-learning_rate = 3e-4
+learning_rate = 5e-4
 weight_decay = learning_rate * 0.05
 epochs = 200
 to_train = True
@@ -784,7 +782,7 @@ num_batches_per_epoch = len(train_segment_dl)
 #     num_batches_per_epoch=num_batches_per_epoch
 # )
 
-#scheduler = torch.optim.lr_scheduler.CosineAnnealingWarmRestarts(optimizer, T_0=int(epochs/4), T_mult=2, eta_min=learning_rate/10)
+# scheduler = torch.optim.lr_scheduler.CosineAnnealingWarmRestarts(optimizer, T_0=int(epochs/4), T_mult=2, eta_min=learning_rate/10)
 scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=epochs, eta_min=learning_rate/10)
 #scheduler = OneCycleLR(optimizer, max_lr=learning_rate, steps_per_epoch=len(train_segment_dl), epochs=epochs)
 
