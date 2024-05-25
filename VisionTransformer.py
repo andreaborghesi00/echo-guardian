@@ -5,6 +5,7 @@ from einops import rearrange
 import segmentation_models_pytorch as smp
 # -------------------------------------------------------------------------------------------------------------------- # FIRST VERSION
 
+
 # class TransformerEncoder(nn.Module):
 #     def __init__(
 #         self,
@@ -155,12 +156,11 @@ import segmentation_models_pytorch as smp
 #     def forward(self, x):
 #         x = x + self.drop_path(self.attn(self.norm1(x), self.norm1(x), self.norm1(x))[0])
 #         x = x + self.drop_path(self.mlp(self.norm2(x)))
-#         return x
+#         return x    
     
     
     
-    
-# -------------------------------------------------------------------------------------------------------------------- # SECOND VERSION
+# #-------------------------------------------------------------------------------------------------------------------- # SECOND VERSION
 
 
 # class PatchEmbed(nn.Module):
