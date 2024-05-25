@@ -19,6 +19,7 @@ import base64
 import hashlib
 from PIL import Image
 
+
 from NNClassification import NNClassifier
 from UnetSegmenter import UnetSegmenter
 
@@ -131,65 +132,109 @@ config_mask = {
     ],
 }
 
+external_stylesheets = [dbc.themes.BOOTSTRAP, 'https://cdnjs.cloudflare.com/ajax/libs/font-awesome/5.15.3/css/all.min.css']
 app = Dash(__name__, external_stylesheets=[dbc.themes.BOOTSTRAP], suppress_callback_exceptions=True)
 
+
 login_layout = dbc.Container([
-    html.Div([
-        html.H1("Login", className="display-3"),
-        html.Hr(className="my-2"),
-        dbc.Row([
-            dbc.Col([
-                dbc.Label("Username", html_for="username-input"),
-                dbc.Input(
-                    id="username-input",
-                    type="text",
-                    placeholder="Enter your username",
-                    className="mb-3",
-                    value=""
-                ),
-                dbc.Label("Password", html_for="password-input"),
-                dbc.Input(
-                    id="password-input",
-                    type="password",
-                    placeholder="Enter your password",
-                    className="mb-3",
-                    value=""
-                ),
-                dbc.Button("Login", id="login-button", color="primary", className="mb-3"),
-                html.Div(id="login-output"),
-            ], width=6, className="mx-auto")
-        ]),
+    dbc.Row([
+        dbc.Col([
+            html.H1("Login", className="display-3 text-center")
+        ], width=12)
+    ]),
+    html.Hr(className="my-2"),
+    dbc.Row([
+        dbc.Col([
+            dbc.Row([
+                dbc.Col([
+                    dbc.Label("Username", html_for="username-input", className="text-center")
+                ], width=12)
+            ]),
+            dbc.Row([
+                dbc.Col([
+                    dcc.Input(
+                        id="username-input",
+                        type="text",
+                        placeholder="Enter your username",
+                        className="form-control mb-3",
+                        value=""
+                    )
+                ], width=12)
+            ]),
+            dbc.Row([
+                dbc.Col([
+                    dbc.Label("Password", html_for="password-input", className="text-center")
+                ], width=12)
+            ]),
+            dbc.Row([
+                dbc.Col([
+                    dcc.Input(
+                        id="password-input",
+                        type="password",
+                        placeholder="Enter your password",
+                        className="form-control mb-3",
+                        value="",
+                        debounce=True,
+                        n_submit=0
+                    )
+                ], width=12)
+            ]),
+            dbc.Row([
+                dbc.Col([
+                    dbc.Button("Login", id="login-button", color="primary", className="mb-3")
+                ], width=12, className="text-center")
+            ]),
+            dbc.Row([
+                dbc.Col([
+                    html.Div(id="login-output", className="text-center")
+                ], width=12)
+            ]),
+        ], width=6, className="mx-auto")
     ]),
     dcc.Store(id='auth-store', storage_type='session'),
 ], fluid=True, className="py-3")
 
+
+with open("images/dragndrop.png", "rb") as image_file:
+    encoded_string = base64.b64encode(image_file.read()).decode()
+icon_base64 = f"data:image/png;base64,{encoded_string}"
+
 main_layout = dbc.Container([
     dbc.Row([
         dbc.Col([
-            html.H1("Medical Image Analysis", className="display-3"),
-        ], width=10, className="mr-auto"),
+            html.H1("Medical Image Analysis", className="display-4 text-center mb-4", style={"font-weight": "bold"})
+        ], width=12)
+    ], justify="center", className="text-center"),
+    dbc.Row([
         dbc.Col([
-            dbc.Button("Logout", id="logout-button", color="danger", className="text-center", style={"margin-top": "20px", "margin-left": "30%"}),
-        ], width=2, className="ml-auto"),
-    ], className="mb-3"),
+            dbc.Button("Logout", id="logout-button", color="danger", className="text-center", style={"margin-top": "20px"})
+        ], width=12, className="text-center")
+    ]),
     html.Hr(className="my-2"),
     dbc.Row([
         dbc.Col([
             dcc.Upload(
                 id='upload-data',
                 children=html.Div([
-                    'Drag and Drop or ',
-                    html.A('Select Files')
+                    html.Div([
+                        html.H4("Drag and Drop or Select Image", className="mb-2"),
+                        html.Img(src=icon_base64, style={'width': '48px', 'height': '48px'}),
+                    ], style={'display': 'flex', 'flex-direction': 'column', 'align-items': 'center', 'justify-content': 'center', 'height': '100%'}),
                 ]),
                 style={
                     'width': '100%',
-                    'height': '60px',
-                    'lineHeight': '60px',
+                    'height': '150px',
+                    'lineHeight': '150px',
                     'borderWidth': '1px',
                     'borderStyle': 'dashed',
                     'borderRadius': '5px',
                     'textAlign': 'center',
-                    'margin': '10px'
+                    'margin': '10px',
+                    'cursor': 'pointer',
+                    'background-color': '#fff',
+                    'display': 'flex',
+                    'align-items': 'center',
+                    'justify-content': 'center'
                 },
                 multiple=False,
                 accept='image/png'
@@ -200,11 +245,19 @@ main_layout = dbc.Container([
     html.Hr(className="my-2"),
     dbc.Row([
         dbc.Col([
-            html.H3("Draw the Region Of Interest (ROI) on the image below:"),
+            dbc.Row([
+                dbc.Col([
+                    html.H3("Draw the Region Of Interest (ROI) on the image below:", className="text-center")
+                ], width=12)
+            ]),
             dcc.Graph(id="ultrasound-image", figure=fig, config=config_image),
         ], width=6),
         dbc.Col([
-            html.H3("Automatic segmenter mask:"),
+            dbc.Row([
+                dbc.Col([
+                    html.H3("Automatic segmenter mask:", className="text-center")
+                ], width=12)
+            ]),
             dcc.Graph(id="segmenter-image", figure=fig_mask, config=config_mask),
         ], width=6),
     ], className="mt-3"),
@@ -222,17 +275,16 @@ main_layout = dbc.Container([
     dcc.Store(id='auth-store'),
     dcc.ConfirmDialog(
         id='confirm-auto-segmenter',
-        message='Danger danger! Are you sure you want to continue?',
+        message='Are you sure you want to continue? The autosegmenter mask will be used for prediction, it may not be accurate.',
     ),
     html.Div(id='dummy-input', children=''),
-    
-], fluid=True, className="py-3")
+], fluid=True, className="py-3", style={"background-color": "#f8f9fa"})
 
 app.layout = html.Div([
     dcc.Location(id='url', refresh=False),
     html.Div(id='page-content'),
     dcc.Store(id='auth-store', storage_type='session'),
-])
+], style={'background-color': '#f8f9fa', 'min-height': '100vh'})
 
 @app.callback(Output('page-content', 'children', allow_duplicate=True),
               [Input('url', 'pathname')],
@@ -257,19 +309,37 @@ def display_page(pathname, auth):
     Output("output-predict", "children", allow_duplicate=True),
     Input("ultrasound-image", "relayoutData"),
     State("image-store", "data"),
+    State("mask-store", "data"),
     prevent_initial_call=True,
 )
-def on_new_annotation(relayout_data, image):
+def on_new_annotation(relayout_data, image, current_mask):
     if "shapes" in relayout_data:
-        if image is None: return no_update, "Please upload an image before predicting."
-        try:
-            last_shape = relayout_data["shapes"][-1]
-        except IndexError:
-            return no_update, "Please upload an image and draw an ROI before predicting."
+        if image is None:
+            return no_update, "Please upload an image before predicting."
         
-        mask, mask_numpy= path_to_mask(last_shape["path"], np.array(image).shape)
-        # squeeze the first dimension
-        return mask_numpy, ""
+        shapes = relayout_data["shapes"]
+        if len(shapes) == 0:
+            # No shapes, clear the mask
+            return np.zeros(np.array(image).shape, dtype=bool), ""
+        else:
+            # Use the last shape to create the mask
+            last_shape = shapes[-1]
+            mask, mask_numpy = path_to_mask(last_shape["path"], np.array(image).shape)
+            return mask_numpy, ""
+    elif "shapes[0].path" in relayout_data:
+        if image is None:
+            return no_update, "Please upload an image before predicting."
+        
+        if current_mask is None:
+            # If there is no current mask, create a new one
+            path = relayout_data["shapes[0].path"]
+            mask, mask_numpy = path_to_mask(path, np.array(image).shape)
+            return mask_numpy, ""
+        else:
+            # If there is a current mask, update it with the new path
+            path = relayout_data["shapes[0].path"]
+            mask, mask_numpy = path_to_mask(path, np.array(image).shape)
+            return mask_numpy, ""
     else:
         raise PreventUpdate
 
@@ -318,8 +388,10 @@ def on_upload_data(contents, filename, auth):
 
         print(mask_numpy.dtype)
 
-        fig_mask = (px.imshow(mask_numpy, title="Automatic segmenter mask", color_continuous_scale='gray'))
+        fig_mask = (px.imshow(mask_numpy, title="This mask was generated by the segmenter", color_continuous_scale='gray'))
+        fig_mask.update_layout(title_x=0.5)
         fig_image = px.imshow(img_numpy, title=filename, color_continuous_scale='gray')
+        fig_image.update_layout(title_x=0.5)
         fig_image.update_layout(dragmode='drawclosedpath')
         # figures.append(fig_image)
 
@@ -333,8 +405,8 @@ def on_upload_data(contents, filename, auth):
 @app.callback(
     Output("output-predict", "children", allow_duplicate=True),
     Output("confirm-auto-segmenter", "displayed"),
-    Input("classify-button", "n_clicks"), # not actually used, it serves as a trigger
-    Input("classify-with-segmenter-button", "n_clicks"), # same as above
+    Input("classify-button", "n_clicks"),
+    Input("classify-with-segmenter-button", "n_clicks"),
     Input("confirm-auto-segmenter", "submit_n_clicks"),
     State("image-store", "data"),
     State("mask-store", "data"),
@@ -342,7 +414,146 @@ def on_upload_data(contents, filename, auth):
     State("auth-store", "data"),
     prevent_initial_call=True,
 )
-def on_predict(n_clicks_classify, n_clicks_classify_segmenter, confirm_danger_clicks,image, mask, segmenter_mask, auth):
+def on_predict(n_clicks_classify, n_clicks_classify_segmenter, confirm_danger_clicks, image, mask, segmenter_mask, auth):
+    if auth is None:
+        return "Please login first.", False
+
+    if ctx.triggered_id == "classify-button":
+        if image is None:
+            return "Please upload an image before predicting.", False
+        elif mask is None or np.all(mask == 0):
+            return "Please draw an ROI before predicting.", False
+        else:
+            try:
+                if not isinstance(image, np.ndarray):
+                    image = np.array(image)
+                if not isinstance(mask, np.ndarray):
+                    mask = np.array(mask)
+
+                if np.all(mask == 0):
+                    return "Please draw an ROI before predicting.", False
+
+                image = Image.fromarray(image.astype('uint8')).convert("L")
+                mask = Image.fromarray(mask.astype('uint8')).convert("L")
+
+                image_bytes = io.BytesIO()
+                image.save(image_bytes, format='PNG')
+                image_bytes.seek(0)
+
+                mask_bytes = io.BytesIO()
+                mask.save(mask_bytes, format='PNG')
+                mask_bytes.seek(0)
+
+                files = {'image': image_bytes, 'mask': mask_bytes}
+                response = requests.post('http://localhost:5000/api/classify', files=files, auth=HTTPBasicAuth(username=auth['username'], password=auth['password']))
+                response.raise_for_status()
+
+                class_pred = response.json()['prediction']
+
+                return f'Predicted class with user segmentation:\n {f"Malignant {class_pred*100:.2f}%" if np.round(class_pred) == 1 else f"Benign {(1-class_pred)*100:.2f}%"}', False
+            except requests.exceptions.RequestException as e:
+                return f"Error: {str(e)}", False
+
+    elif ctx.triggered_id == "classify-with-segmenter-button":
+        if image is None:
+            return "Please upload an image before predicting.", False
+        else:
+            return "", True
+
+    elif ctx.triggered_id == "confirm-auto-segmenter":
+        try:
+            if not isinstance(image, np.ndarray):
+                image = np.array(image)
+            if not isinstance(segmenter_mask, np.ndarray):
+                segmenter_mask = np.array(segmenter_mask)
+
+            image = Image.fromarray(image.astype('uint8')).convert("L")
+            mask = Image.fromarray(segmenter_mask.astype('uint8')).convert("L")
+
+            image_bytes = io.BytesIO()
+            image.save(image_bytes, format='PNG')
+            image_bytes.seek(0)
+
+            mask_bytes = io.BytesIO()
+            mask.save(mask_bytes, format='PNG')
+            mask_bytes.seek(0)
+
+            files = {'image': image_bytes, 'mask': mask_bytes}
+            response = requests.post('http://localhost:5000/api/classify', files=files, auth=HTTPBasicAuth(username=auth['username'], password=auth['password']))
+            response.raise_for_status()
+
+            class_pred = response.json()['prediction']
+            return f'Predicted class with auto segmentation:\n {f"Malignant {class_pred*100:.2f}%" if np.round(class_pred) == 1 else f"Benign {(1-class_pred)*100:.2f}%"}', False
+        except Exception as e:
+            return f"Error: {str(e)}", False
+    if auth is None:
+        return "Please login first.", False
+
+    if ctx.triggered_id == "classify-button":
+        if image is None:
+            return "Please upload an image before predicting.", False
+        elif mask is None or np.all(mask == 0):
+            return "Please draw an ROI before predicting.", False
+        else:
+            try:
+                if not isinstance(image, np.ndarray):
+                    image = np.array(image)
+                if not isinstance(mask, np.ndarray):
+                    mask = np.array(mask)
+
+                image = Image.fromarray(image.astype('uint8')).convert("L")
+                mask = Image.fromarray(mask.astype('uint8')).convert("L")
+
+                image_bytes = io.BytesIO()
+                image.save(image_bytes, format='PNG')
+                image_bytes.seek(0)
+
+                mask_bytes = io.BytesIO()
+                mask.save(mask_bytes, format='PNG')
+                mask_bytes.seek(0)
+
+                files = {'image': image_bytes, 'mask': mask_bytes}
+                response = requests.post('http://localhost:5000/api/classify', files=files, auth=HTTPBasicAuth(username=auth['username'], password=auth['password']))
+                response.raise_for_status()
+
+                class_pred = response.json()['prediction']
+
+                return f'Predicted class with user segmentation:\n {f"Malignant {class_pred*100:.2f}%" if np.round(class_pred) == 1 else f"Benign {(1-class_pred)*100:.2f}%"}', False
+            except requests.exceptions.RequestException as e:
+                return f"Error: {str(e)}", False
+
+    elif ctx.triggered_id == "classify-with-segmenter-button":
+        if image is None:
+            return "Please upload an image before predicting.", False
+        else:
+            return "", True
+
+    elif ctx.triggered_id == "confirm-auto-segmenter":
+        try:
+            if not isinstance(image, np.ndarray):
+                image = np.array(image)
+            if not isinstance(segmenter_mask, np.ndarray):
+                segmenter_mask = np.array(segmenter_mask)
+
+            image = Image.fromarray(image.astype('uint8')).convert("L")
+            mask = Image.fromarray(segmenter_mask.astype('uint8')).convert("L")
+
+            image_bytes = io.BytesIO()
+            image.save(image_bytes, format='PNG')
+            image_bytes.seek(0)
+
+            mask_bytes = io.BytesIO()
+            mask.save(mask_bytes, format='PNG')
+            mask_bytes.seek(0)
+
+            files = {'image': image_bytes, 'mask': mask_bytes}
+            response = requests.post('http://localhost:5000/api/classify', files=files, auth=HTTPBasicAuth(username=auth['username'], password=auth['password']))
+            response.raise_for_status()
+
+            class_pred = response.json()['prediction']
+            return f'Predicted class with auto segmentation:\n {f"Malignant {class_pred*100:.2f}%" if np.round(class_pred) == 1 else f"Benign {(1-class_pred)*100:.2f}%"}', False
+        except Exception as e:
+            return f"Error: {str(e)}", False
     if auth is None: return "Please login first.", False
 
     if ctx.triggered_id == "classify-button":
