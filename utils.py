@@ -356,3 +356,36 @@ class BiConvLSTM_UNet(nn.Module):
         output = self.output(dec3)
 
         return output
+
+class SvgPath:
+    def __init__(self, contour):
+        self.contour = contour
+        self.path = self.generate_path()
+
+    def generate_path(self):
+        if len(self.contour) == 0:
+            return ""
+        path = "M"
+        for i in range(len(self.contour)):
+            x, y = self.contour[i][0]
+            if i == len(self.contour) - 1:
+                path += f"{float(x)},{float(y)}"
+            else:
+                path += f"{float(x)},{float(y)}L"
+        path += "Z"
+        return path
+
+    def to_dict(self):
+        return {
+            "editable": True,
+            "label": {"text": ""},
+            "xref": "x",
+            "yref": "y",
+            "layer": "above",
+            "opacity": 1,
+            "line": {"color": "#444", "width": 4, "dash": "solid"},
+            "fillcolor": "rgba(0,0,0,0)",
+            "fillrule": "evenodd",
+            "type": "path",
+            "path": self.path
+        }

@@ -7,6 +7,7 @@ import sys
 from flask_httpauth import HTTPBasicAuth
 import hashlib
 from functools import wraps
+from SimpleNet import SimpleNet
 
 app = Flask(__name__)
 auth = HTTPBasicAuth()
