@@ -28,8 +28,9 @@ import cv2
 from svgpathtools import Path, Line
 
 class SvgPath:
-    def __init__(self, contour):
+    def __init__(self, contour, color='#444'):
         self.contour = contour
+        self.color = color
         self.path = self.generate_path()
 
     def generate_path(self):
@@ -53,7 +54,7 @@ class SvgPath:
             "yref": "y",
             "layer": "above",
             "opacity": 1,
-            "line": {"color": "#444", "width": 4, "dash": "solid"},
+            "line": {"color": self.color, "width": 4, "dash": "solid"},
             "fillcolor": "rgba(0,0,0,0)",
             "fillrule": "evenodd",
             "type": "path",
@@ -265,9 +266,9 @@ main_layout = dbc.Container([
     ], justify="center", className="text-center"),
     dbc.Row([
         dbc.Col([
-            dbc.Button("Logout", id="logout-button", color="danger", className="text-center", style={"margin-top": "20px"})
-        ], width=12, className="text-center")
-    ]),
+            dbc.Button("Logout", id="logout-button", color="danger", className="text-center", style={"margin-top": "10px", "margin-right": "10px"})
+        ], style={"display": "flex", "flex-flow": "row wrap", "justify-content": "flex-end"})
+    ], style={"display": "flex", "flex-direction": "row", "justify-content": "end"}),
     html.Hr(className="my-2"),
     dbc.Row([
         dbc.Col([
@@ -328,6 +329,12 @@ main_layout = dbc.Container([
             html.Div(id="output-predict", className="mt-3"),
         ], width=12, className="text-center"),
     ], className="mt-3"),
+    dbc.Row([
+        dbc.Col([
+            dbc.Spinner(color="primary", type="grow"),
+            html.Div("Loading segmented mask...", id="loading-output")
+        ], width=12, className="text-center")
+    ], className="mt-3", justify="center", id="loading-row", style={"display": "none"}),
     dcc.Store(id='image-store'),
     dcc.Store(id='mask-store'),
     dcc.Store(id='segmenter-store'),
@@ -371,6 +378,7 @@ def display_page(pathname, auth):
     Output("image-store", "data"),
     Output("segmenter-image", "figure"),
     Output("segmenter-store", "data"),
+    Output("loading-row", "style"),
     Input("ultrasound-image", "relayoutData"),
     Input("load-segmenter-mask-button", "n_clicks"),
     Input("upload-data", "contents"),
@@ -392,37 +400,37 @@ def update_annotation_and_upload(relayout_data, load_segmenter_mask_clicks, cont
     if trigger_id == "ultrasound-image":
         if "shapes" in relayout_data:
             if image is None:
-                return no_update, "Please upload an image before predicting.", no_update, no_update, no_update, no_update
+                return no_update, "Please upload an image before predicting.", no_update, no_update, no_update, no_update, {"display": "none"}
             
             shapes = relayout_data["shapes"]
             if len(shapes) == 0:
                 # No shapes, clear the mask
-                return np.zeros(np.array(image).shape, dtype=bool), "", current_figure, no_update, no_update, no_update
+                return np.zeros(np.array(image).shape, dtype=bool), "", current_figure, no_update, no_update, no_update, {"display": "none"}
             else:
                 # Use the last shape to create the mask
                 last_shape = shapes[-1]
                 mask, mask_numpy = path_to_mask(last_shape["path"], np.array(image).shape)
-                return mask_numpy, "", current_figure, no_update, no_update, no_update
+                return mask_numpy, "", current_figure, no_update, no_update, no_update, {"display": "none"}
         elif "shapes[0].path" in relayout_data:
             if image is None:
-                return no_update, "Please upload an image before predicting.", no_update, no_update, no_update, no_update
+                return no_update, "Please upload an image before predicting.", no_update, no_update, no_update, no_update, {"display": "none"}
             
             if current_mask is None:
                 # If there is no current mask, create a new one
                 path = relayout_data["shapes[0].path"]
                 mask, mask_numpy = path_to_mask(path, np.array(image).shape)
-                return mask_numpy, "", current_figure, no_update, no_update, no_update
+                return mask_numpy, "", current_figure, no_update, no_update, no_update, {"display": "none"}
             else:
                 # If there is a current mask, update it with the new path
                 path = relayout_data["shapes[0].path"]
                 mask, mask_numpy = path_to_mask(path, np.array(image).shape)
-                return mask_numpy, "", current_figure, no_update, no_update, no_update
+                return mask_numpy, "", current_figure, no_update, no_update, no_update, {"display": "none"}
         else:
             raise PreventUpdate
 
     elif trigger_id == "load-segmenter-mask-button":
-        if segmenter_mask is None:
-            raise PreventUpdate
+        if segmenter_mask is None or image is None:
+            return no_update, no_update, current_figure, no_update, no_update, no_update, {"display": "none"}
 
         # Convert segmenter_mask to a NumPy array if it is a list
         if isinstance(segmenter_mask, list):
@@ -432,22 +440,43 @@ def update_annotation_and_upload(relayout_data, load_segmenter_mask_clicks, cont
         contours, _ = cv2.findContours(segmenter_mask.astype(np.uint8), cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_TC89_L1)
         svg_paths = []
         for c in contours:
-            svg_path = SvgPath(c)
+            svg_path = SvgPath(c, color='blue')  # Pass the color 'blue' here
             svg_paths.append(svg_path.to_dict())
 
-        # Update the current figure with the new shape
-        current_figure["layout"]["shapes"] = svg_paths
+        # Create a new figure with the updated shape
+        new_figure = go.Figure(data=[go.Heatmap(z=np.array(image), colorscale=[[0, 'black'], [1, 'white']])])
+        new_figure.update_layout(
+            shapes=svg_paths,
+            dragmode='drawclosedpath',
+            newshape=dict(line_color='blue', fillcolor='rgba(0,0,0,0)'),
+            margin=dict(l=0, r=0, b=0, t=0),
+            xaxis=dict(visible=False, range=[0, segmenter_mask.shape[1]]),
+            yaxis=dict(visible=False, range=[segmenter_mask.shape[0], 0], scaleanchor="x", scaleratio=1)
+        )
 
-        return segmenter_mask, "", current_figure, no_update, no_update, no_update
-    
-    
+        # Update the line color of the loaded segmenter mask
+        for path in svg_paths:
+            path['line']['color'] = 'blue'
+
+        # Create figure for segmenter mask
+        fig_mask = px.imshow(segmenter_mask, color_continuous_scale=[[0, 'black'], [1, 'white']], aspect="equal")
+        fig_mask.update_layout(
+            margin=dict(l=0, r=0, b=0, t=0),
+            autosize=True,
+            height=500
+        )
+        fig_mask.update_xaxes(showticklabels=False)
+        fig_mask.update_yaxes(showticklabels=False)
+
+        return segmenter_mask, "", new_figure, no_update, fig_mask, no_update, {"display": "none"}
+
     elif trigger_id == "upload-data":
         if auth is None or auth['username'] is None or auth['password'] is None:
             raise PreventUpdate
 
         if contents is not None:
             if not filename.endswith('png'):
-                return no_update, "File type unsupported, please upload a valid image file.", no_update, no_update, no_update, no_update
+                return no_update, "File type unsupported, please upload a valid image file.", no_update, no_update, no_update, no_update, {"display": "none"}
             
             _, content_string = contents.split(',')
             decoded_data = base64.b64decode(content_string)
@@ -463,6 +492,56 @@ def update_annotation_and_upload(relayout_data, load_segmenter_mask_clicks, cont
 
             files = {'image': ("Image.png", img_bytes, "image/png")}
 
+            # Create figure for ultrasound image
+            fig_image = go.Figure(data=[go.Heatmap(z=img_numpy, colorscale=[[0, 'black'], [1, 'white']])])
+            fig_image.update_layout(
+                dragmode='drawclosedpath',
+                newshape=dict(line_color='blue', fillcolor='rgba(0,0,0,0)'),
+                margin=dict(l=0, r=0, b=0, t=0),
+                autosize=True,
+                height=500,
+                xaxis=dict(visible=False, range=[0, img_numpy.shape[1]]),
+                yaxis=dict(visible=False, range=[img_numpy.shape[0], 0], scaleanchor="x", scaleratio=1)
+            )
+
+            # Show loading screen while segmentation is being processed
+            loading_figure = go.Figure(
+                data=[go.Scatter()],
+                layout=go.Layout(
+                    xaxis=dict(showgrid=False, zeroline=False, showticklabels=False),
+                    yaxis=dict(showgrid=False, zeroline=False, showticklabels=False),
+                    margin=dict(l=0, r=0, b=0, t=0),
+                    autosize=True,
+                    height=500,
+                    template='plotly_white'
+                )
+            )
+            loading_figure.update_layout(
+                shapes=[
+                    dict(
+                        type="circle",
+                        xref="x",
+                        yref="y",
+                        x0=-1,
+                        y0=-1,
+                        x1=1,
+                        y1=1,
+                        line_color="lightgrey",
+                        line_width=2
+                    )
+                ],
+                annotations=[
+                    dict(
+                        text="Loading segmentation...",
+                        xref="paper",
+                        yref="paper",
+                        showarrow=False,
+                        font_size=20,
+                        font_color="lightgrey"
+                    )
+                ]
+            )
+
             response = requests.post('http://localhost:5000/api/segment', files=files, auth=HTTPBasicAuth(username=auth['username'], password=auth['password']))
             response.raise_for_status()
 
@@ -471,20 +550,8 @@ def update_annotation_and_upload(relayout_data, load_segmenter_mask_clicks, cont
             mask_numpy = np.array(mask)
             mask_numpy = ndimage.binary_fill_holes(mask_numpy)
 
-            # Create figure for ultrasound image
-            fig_image = px.imshow(img_numpy, color_continuous_scale='gray', aspect="equal")
-            fig_image.update_layout(
-                dragmode='drawclosedpath',
-                newshape=dict(line_color='cyan'),
-                margin=dict(l=0, r=0, b=0, t=0),
-                autosize=True,
-                height=500
-            )
-            fig_image.update_xaxes(showticklabels=False)
-            fig_image.update_yaxes(showticklabels=False)
-
             # Create figure for segmenter mask
-            fig_mask = px.imshow(mask_numpy, color_continuous_scale='gray', aspect="equal")
+            fig_mask = px.imshow(mask_numpy, color_continuous_scale=[[0, 'black'], [1, 'white']], aspect="equal")
             fig_mask.update_layout(
                 margin=dict(l=0, r=0, b=0, t=0),
                 autosize=True,
@@ -493,10 +560,9 @@ def update_annotation_and_upload(relayout_data, load_segmenter_mask_clicks, cont
             fig_mask.update_xaxes(showticklabels=False)
             fig_mask.update_yaxes(showticklabels=False)
 
-            
             if not fig_image:
                 raise PreventUpdate
-            return no_update, "", fig_image, img_numpy, fig_mask, mask_numpy
+            return no_update, "", fig_image, img_numpy, fig_mask, mask_numpy, {"display": "none"}
         raise PreventUpdate
 
     else:
@@ -514,13 +580,19 @@ def update_annotation_and_upload(relayout_data, load_segmenter_mask_clicks, cont
     State("mask-store", "data"),
     State("segmenter-store", "data"),
     State("auth-store", "data"),
-    prevent_initial_call=True,
+    prevent_initial_call='initial_duplicate'
 )
 def on_predict(n_clicks_classify, n_clicks_classify_segmenter, confirm_danger_clicks, image, mask, segmenter_mask, auth):
     if auth is None:
         return "Please login first.", False
+    
+    ctx = dash.callback_context
+    if not ctx.triggered:
+        raise PreventUpdate
 
-    if ctx.triggered_id == "classify-button" or (n_clicks_classify is not None and n_clicks_classify > 0):
+    trigger_id = ctx.triggered[0]["prop_id"].split(".")[0]
+
+    if trigger_id == "classify-button" or (n_clicks_classify is not None and n_clicks_classify > 0):
         if image is None:
             return "Please upload an image before predicting.", False
         elif mask is None or np.all(mask == 0):
@@ -533,7 +605,7 @@ def on_predict(n_clicks_classify, n_clicks_classify_segmenter, confirm_danger_cl
                     mask = np.array(mask)
 
                 if np.all(mask == 0):
-                    return "Please draw an ROI before predicting.", False
+                    return "Please draw a ROI before predicting.", False
 
                 image = Image.fromarray(image.astype('uint8')).convert("L")
                 mask = Image.fromarray(mask.astype('uint8')).convert("L")
@@ -556,13 +628,13 @@ def on_predict(n_clicks_classify, n_clicks_classify_segmenter, confirm_danger_cl
             except requests.exceptions.RequestException as e:
                 return f"Error: {str(e)}", False
 
-    elif ctx.triggered_id == "classify-with-segmenter-button":
+    elif trigger_id == "classify-with-segmenter-button":
         if image is None:
             return "Please upload an image before predicting.", False
         else:
             return "", True
 
-    elif ctx.triggered_id == "confirm-auto-segmenter":
+    elif trigger_id == "confirm-auto-segmenter":
         try:
             if not isinstance(image, np.ndarray):
                 image = np.array(image)
@@ -591,7 +663,7 @@ def on_predict(n_clicks_classify, n_clicks_classify_segmenter, confirm_danger_cl
     if auth is None:
         return "Please login first.", False
 
-    if ctx.triggered_id == "classify-button":
+    if trigger_id == "classify-button":
         if image is None:
             return "Please upload an image before predicting.", False
         elif mask is None or np.all(mask == 0):
@@ -624,13 +696,13 @@ def on_predict(n_clicks_classify, n_clicks_classify_segmenter, confirm_danger_cl
             except requests.exceptions.RequestException as e:
                 return f"Error: {str(e)}", False
 
-    elif ctx.triggered_id == "classify-with-segmenter-button":
+    elif trigger_id == "classify-with-segmenter-button":
         if image is None:
             return "Please upload an image before predicting.", False
         else:
             return "", True
 
-    elif ctx.triggered_id == "confirm-auto-segmenter":
+    elif trigger_id == "confirm-auto-segmenter":
         try:
             if not isinstance(image, np.ndarray):
                 image = np.array(image)
@@ -658,7 +730,7 @@ def on_predict(n_clicks_classify, n_clicks_classify_segmenter, confirm_danger_cl
             return f"Error: {str(e)}", False
     if auth is None: return "Please login first.", False
 
-    if ctx.triggered_id == "classify-button":
+    if trigger_id == "classify-button":
         if image is None or mask is None:
             return "Please upload an image and draw an ROI before predicting.", False
         else:
@@ -690,12 +762,12 @@ def on_predict(n_clicks_classify, n_clicks_classify_segmenter, confirm_danger_cl
             except requests.exceptions.RequestException as e:
                 return f"Error: {str(e)}", False
             
-    elif ctx.triggered_id == "classify-with-segmenter-button":
+    elif trigger_id == "classify-with-segmenter-button":
         if image is None:
             return "Please upload an image before predicting.", False
         else:            
             return f"", True
-    elif ctx.triggered_id == "confirm-auto-segmenter":
+    elif trigger_id == "confirm-auto-segmenter":
         try:
             if not isinstance(image, np.ndarray): image = np.array(image) # for some reason it's a python list although i save it as numpy array
             if not isinstance(segmenter_mask, np.ndarray): segmenter_mask = np.array(segmenter_mask) # same here
@@ -720,43 +792,6 @@ def on_predict(n_clicks_classify, n_clicks_classify_segmenter, confirm_danger_cl
         except Exception as e:
             return f"Error: {str(e)}", False
 
-@app.callback(
-    Output("ultrasound-image", "figure"),
-    Input("load-segmenter-mask-button", "n_clicks"),
-    State("segmenter-store", "data"),
-    State("ultrasound-image", "figure"),
-    prevent_initial_call=True,
-)
-def load_segmenter_mask(n_clicks, segmenter_mask, current_figure):
-    if n_clicks is None:
-        raise PreventUpdate
-
-    if segmenter_mask is None:
-        return current_figure
-
-    # Convert segmenter_mask to a NumPy array if it is a list
-    if isinstance(segmenter_mask, list):
-        segmenter_mask = np.array(segmenter_mask)
-
-    # Transform the segmenter mask into a shape
-    contours, _ = cv2.findContours(segmenter_mask.astype(np.uint8), cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_TC89_L1)
-    svg_paths = []
-    for c in contours:
-        svg_path = SvgPath(c)
-        svg_paths.append(svg_path.to_dict())
-
-    # Create a new figure with the updated shape
-    new_figure = go.Figure(data=current_figure["data"])
-    new_figure.update_layout(
-    shapes=svg_paths,
-    dragmode='drawclosedpath',
-    newshape=dict(line_color='#444', fillcolor='rgba(0,0,0,0)'),
-    margin=dict(l=0, r=0, b=0, t=0),
-    xaxis=dict(visible=False, range=[0, segmenter_mask.shape[1]]),
-    yaxis=dict(visible=False, range=[segmenter_mask.shape[0], 0], scaleanchor="x", scaleratio=1)
-    )
-
-    return new_figure
 
 
 @app.callback(
