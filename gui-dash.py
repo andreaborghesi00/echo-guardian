@@ -7,6 +7,7 @@ import dash
 import dash_bootstrap_components as dbc
 from dash import Dash, dcc, html, Input, Output, State, no_update, callback, ctx
 from dash_extensions.enrich import DashProxy, LogTransform, DashLogger
+import plotly.graph_objects as go
 from dash.exceptions import PreventUpdate
 import dash_daq as daq
 import plotly.express as px
@@ -22,6 +23,57 @@ from PIL import Image
 
 from NNClassification import NNClassifier
 from UnetSegmenter import UnetSegmenter
+
+import cv2
+from svgpathtools import Path, Line
+
+class SvgPath:
+    def __init__(self, contour):
+        self.contour = contour
+        self.path = self.generate_path()
+
+    def generate_path(self):
+        if len(self.contour) == 0:
+            return ""
+        path = "M"
+        for i in range(len(self.contour)):
+            x, y = self.contour[i][0]
+            if i == len(self.contour) - 1:
+                path += f"{float(x)},{float(y)}"
+            else:
+                path += f"{float(x)},{float(y)}L"
+        path += "Z"
+        return path
+
+    def to_dict(self):
+        return {
+            "editable": True,
+            "label": {"text": ""},
+            "xref": "x",
+            "yref": "y",
+            "layer": "above",
+            "opacity": 1,
+            "line": {"color": "#444", "width": 4, "dash": "solid"},
+            "fillcolor": "rgba(0,0,0,0)",
+            "fillrule": "evenodd",
+            "type": "path",
+            "path": self.path
+        }
+
+external_stylesheets = [
+    dbc.themes.BOOTSTRAP,
+    'https://cdnjs.cloudflare.com/ajax/libs/font-awesome/5.15.3/css/all.min.css',
+    {
+        'href': 'https://cdn.jsdelivr.net/gh/creativetimofficial/tailwind-starter-kit/compiled-tailwind.min.css',
+        'rel': 'stylesheet',
+        'integrity': 'sha256-Qw8g/pxKUoW+1eWoEAMBYRl6BGh9/ynIo/XMpgi+Zw=',
+        'crossorigin': 'anonymous'
+    },
+    {
+        'href': 'https://fonts.googleapis.com/css2?family=Inter:wght@400;700&display=swap',
+        'rel': 'stylesheet'
+    }
+]
 
 def path_to_indices(path):
     """
@@ -100,9 +152,13 @@ config_image = {
         "drawcircle",
         "drawrect",
         "eraseshape",
-    ], 
+    ],
     "displaylogo": False,
     "modeBarButtonsToRemove": [
+        "zoom2d",
+        "pan2d",
+        "select2d",
+        "lasso2d",
         "zoomIn2d",
         "zoomOut2d",
         "autoScale2d",
@@ -110,10 +166,12 @@ config_image = {
         "hoverClosestCartesian",
         "hoverCompareCartesian",
         "toggleSpikelines",
-        "pan2d",
-        "lasso2d",
-        "select2d",
     ],
+    "doubleClick": "reset",
+    "showTips": False,
+    "showAxisDragHandles": False,
+    "showAxisRangeEntryBoxes": False,
+    "scrollZoom": False,
 }
 
 config_mask = {
@@ -250,22 +308,23 @@ main_layout = dbc.Container([
                     html.H3("Draw the Region Of Interest (ROI) on the image below:", className="text-center")
                 ], width=12)
             ]),
-            dcc.Graph(id="ultrasound-image", figure=fig, config=config_image),
-        ], width=6),
+            dcc.Graph(id="ultrasound-image", figure=fig, config=config_image, className="graph-figure"),
+        ], width=12, md=6, className="text-center"),
         dbc.Col([
             dbc.Row([
                 dbc.Col([
                     html.H3("Automatic segmenter mask:", className="text-center")
                 ], width=12)
             ]),
-            dcc.Graph(id="segmenter-image", figure=fig_mask, config=config_mask),
-        ], width=6),
-    ], className="mt-3"),
+            dcc.Graph(id="segmenter-image", figure=fig_mask, config=config_mask, className="graph-figure"),
+        ], width=12, md=6, className="text-center"),
+    ], className="mt-3", justify="center"),
     html.Hr(className="my-2"),
     dbc.Row([
         dbc.Col([
             dbc.Button("Predict with your mask", id="classify-button", color="primary", className="mr-2", style={"margin-right": "10px"}),
             dbc.Button("Predict with segmenter mask", id="classify-with-segmenter-button", color="secondary", className="ml-2", style={"margin-left": "10px"}),
+            dbc.Button("Load Segmenter Mask", id="load-segmenter-mask-button", color="info", className="ml-2", style={"margin-left": "10px"}),
             html.Div(id="output-predict", className="mt-3"),
         ], width=12, className="text-center"),
     ], className="mt-3"),
@@ -279,6 +338,7 @@ main_layout = dbc.Container([
     ),
     html.Div(id='dummy-input', children=''),
 ], fluid=True, className="py-3", style={"background-color": "#f8f9fa"})
+
 
 app.layout = html.Div([
     dcc.Location(id='url', refresh=False),
@@ -307,99 +367,141 @@ def display_page(pathname, auth):
 @app.callback(
     Output("mask-store", "data"),
     Output("output-predict", "children", allow_duplicate=True),
-    Input("ultrasound-image", "relayoutData"),
-    State("image-store", "data"),
-    State("mask-store", "data"),
-    prevent_initial_call=True,
-)
-def on_new_annotation(relayout_data, image, current_mask):
-    if "shapes" in relayout_data:
-        if image is None:
-            return no_update, "Please upload an image before predicting."
-        
-        shapes = relayout_data["shapes"]
-        if len(shapes) == 0:
-            # No shapes, clear the mask
-            return np.zeros(np.array(image).shape, dtype=bool), ""
-        else:
-            # Use the last shape to create the mask
-            last_shape = shapes[-1]
-            mask, mask_numpy = path_to_mask(last_shape["path"], np.array(image).shape)
-            return mask_numpy, ""
-    elif "shapes[0].path" in relayout_data:
-        if image is None:
-            return no_update, "Please upload an image before predicting."
-        
-        if current_mask is None:
-            # If there is no current mask, create a new one
-            path = relayout_data["shapes[0].path"]
-            mask, mask_numpy = path_to_mask(path, np.array(image).shape)
-            return mask_numpy, ""
-        else:
-            # If there is a current mask, update it with the new path
-            path = relayout_data["shapes[0].path"]
-            mask, mask_numpy = path_to_mask(path, np.array(image).shape)
-            return mask_numpy, ""
-    else:
-        raise PreventUpdate
-
-
-@app.callback(
-    Output("ultrasound-image", "figure"),
+    Output("ultrasound-image", "figure", allow_duplicate=True),
     Output("image-store", "data"),
     Output("segmenter-image", "figure"),
     Output("segmenter-store", "data"),
-    Output("output-predict", "children", allow_duplicate=True),
+    Input("ultrasound-image", "relayoutData"),
+    Input("load-segmenter-mask-button", "n_clicks"),
     Input("upload-data", "contents"),
+    State("image-store", "data"),
+    State("mask-store", "data"),
+    State("segmenter-store", "data"),
+    State("ultrasound-image", "figure"),
     State("upload-data", "filename"),
     State("auth-store", "data"),
     prevent_initial_call=True,
 )
-def on_upload_data(contents, filename, auth):
-    if auth is None or auth['username'] is None or auth['password'] is None: raise PreventUpdate
+def update_annotation_and_upload(relayout_data, load_segmenter_mask_clicks, contents, image, current_mask, segmenter_mask, current_figure, filename, auth):
+    ctx = dash.callback_context
+    if not ctx.triggered:
+        raise PreventUpdate
 
-    if contents is not None:
-        if not filename.endswith('png'): return no_update, no_update, no_update, no_update, "File type unsupported, please upload a valid image file."
-        
-        _, content_string = contents.split(',')
-        decoded_data = base64.b64decode(content_string)
+    trigger_id = ctx.triggered[0]["prop_id"].split(".")[0]
 
-        # try: 
-        img = Image.open(io.BytesIO(decoded_data)).convert("L")
-        # except Exception as e:
-        #     return no_update, no_update, no_update, no_update, f"File type unsupported, please upload a valid image file."
-        
-        img_bytes = io.BytesIO()
-        img.save(img_bytes, format='PNG')
-        img_bytes.seek(0)
-
-        img_numpy = np.array(img)
-        img_numpy = cv.resize(img_numpy, (256, 256))
-
-        files = {'image': ("Image.png", img_bytes, "image/png")}
-
-        response = requests.post('http://localhost:5000/api/segment', files=files, auth=HTTPBasicAuth(username=auth['username'], password=auth['password']))
-        response.raise_for_status()
-
-        mask_bytes = response.content
-        mask = Image.open(io.BytesIO(mask_bytes))
-        mask_numpy = np.array(mask)
-        mask_numpy = ndimage.binary_fill_holes(mask_numpy)
-
-        print(mask_numpy.dtype)
-
-        fig_mask = (px.imshow(mask_numpy, title="This mask was generated by the segmenter", color_continuous_scale='gray'))
-        fig_mask.update_layout(title_x=0.5)
-        fig_image = px.imshow(img_numpy, title=filename, color_continuous_scale='gray')
-        fig_image.update_layout(title_x=0.5)
-        fig_image.update_layout(dragmode='drawclosedpath')
-        # figures.append(fig_image)
-
-        # If no figures were created, return an empty figure
-        if not fig_image:
+    if trigger_id == "ultrasound-image":
+        if "shapes" in relayout_data:
+            if image is None:
+                return no_update, "Please upload an image before predicting.", no_update, no_update, no_update, no_update
+            
+            shapes = relayout_data["shapes"]
+            if len(shapes) == 0:
+                # No shapes, clear the mask
+                return np.zeros(np.array(image).shape, dtype=bool), "", current_figure, no_update, no_update, no_update
+            else:
+                # Use the last shape to create the mask
+                last_shape = shapes[-1]
+                mask, mask_numpy = path_to_mask(last_shape["path"], np.array(image).shape)
+                return mask_numpy, "", current_figure, no_update, no_update, no_update
+        elif "shapes[0].path" in relayout_data:
+            if image is None:
+                return no_update, "Please upload an image before predicting.", no_update, no_update, no_update, no_update
+            
+            if current_mask is None:
+                # If there is no current mask, create a new one
+                path = relayout_data["shapes[0].path"]
+                mask, mask_numpy = path_to_mask(path, np.array(image).shape)
+                return mask_numpy, "", current_figure, no_update, no_update, no_update
+            else:
+                # If there is a current mask, update it with the new path
+                path = relayout_data["shapes[0].path"]
+                mask, mask_numpy = path_to_mask(path, np.array(image).shape)
+                return mask_numpy, "", current_figure, no_update, no_update, no_update
+        else:
             raise PreventUpdate
-        return fig_image, img_numpy, fig_mask, mask_numpy, ""
-    raise PreventUpdate
+
+    elif trigger_id == "load-segmenter-mask-button":
+        if segmenter_mask is None:
+            raise PreventUpdate
+
+        # Convert segmenter_mask to a NumPy array if it is a list
+        if isinstance(segmenter_mask, list):
+            segmenter_mask = np.array(segmenter_mask)
+
+        # Transform the segmenter mask into a shape
+        contours, _ = cv2.findContours(segmenter_mask.astype(np.uint8), cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_TC89_L1)
+        svg_paths = []
+        for c in contours:
+            svg_path = SvgPath(c)
+            svg_paths.append(svg_path.to_dict())
+
+        # Update the current figure with the new shape
+        current_figure["layout"]["shapes"] = svg_paths
+
+        return segmenter_mask, "", current_figure, no_update, no_update, no_update
+    
+    
+    elif trigger_id == "upload-data":
+        if auth is None or auth['username'] is None or auth['password'] is None:
+            raise PreventUpdate
+
+        if contents is not None:
+            if not filename.endswith('png'):
+                return no_update, "File type unsupported, please upload a valid image file.", no_update, no_update, no_update, no_update
+            
+            _, content_string = contents.split(',')
+            decoded_data = base64.b64decode(content_string)
+
+            img = Image.open(io.BytesIO(decoded_data)).convert("L")
+            
+            img_bytes = io.BytesIO()
+            img.save(img_bytes, format='PNG')
+            img_bytes.seek(0)
+
+            img_numpy = np.array(img)
+            img_numpy = cv.resize(img_numpy, (256, 256))
+
+            files = {'image': ("Image.png", img_bytes, "image/png")}
+
+            response = requests.post('http://localhost:5000/api/segment', files=files, auth=HTTPBasicAuth(username=auth['username'], password=auth['password']))
+            response.raise_for_status()
+
+            mask_bytes = response.content
+            mask = Image.open(io.BytesIO(mask_bytes))
+            mask_numpy = np.array(mask)
+            mask_numpy = ndimage.binary_fill_holes(mask_numpy)
+
+            # Create figure for ultrasound image
+            fig_image = px.imshow(img_numpy, color_continuous_scale='gray', aspect="equal")
+            fig_image.update_layout(
+                dragmode='drawclosedpath',
+                newshape=dict(line_color='cyan'),
+                margin=dict(l=0, r=0, b=0, t=0),
+                autosize=True,
+                height=500
+            )
+            fig_image.update_xaxes(showticklabels=False)
+            fig_image.update_yaxes(showticklabels=False)
+
+            # Create figure for segmenter mask
+            fig_mask = px.imshow(mask_numpy, color_continuous_scale='gray', aspect="equal")
+            fig_mask.update_layout(
+                margin=dict(l=0, r=0, b=0, t=0),
+                autosize=True,
+                height=500
+            )
+            fig_mask.update_xaxes(showticklabels=False)
+            fig_mask.update_yaxes(showticklabels=False)
+
+            
+            if not fig_image:
+                raise PreventUpdate
+            return no_update, "", fig_image, img_numpy, fig_mask, mask_numpy
+        raise PreventUpdate
+
+    else:
+        raise PreventUpdate
+
 
 
 @app.callback(
@@ -418,7 +520,7 @@ def on_predict(n_clicks_classify, n_clicks_classify_segmenter, confirm_danger_cl
     if auth is None:
         return "Please login first.", False
 
-    if ctx.triggered_id == "classify-button":
+    if ctx.triggered_id == "classify-button" or (n_clicks_classify is not None and n_clicks_classify > 0):
         if image is None:
             return "Please upload an image before predicting.", False
         elif mask is None or np.all(mask == 0):
@@ -617,6 +719,44 @@ def on_predict(n_clicks_classify, n_clicks_classify_segmenter, confirm_danger_cl
             return f'Predicted class with auto segmentation:\n {f"Malignant {class_pred*100:.2f}%" if np.round(class_pred) == 1 else f"Benign {(1-class_pred)*100:.2f}%"}', False
         except Exception as e:
             return f"Error: {str(e)}", False
+
+@app.callback(
+    Output("ultrasound-image", "figure"),
+    Input("load-segmenter-mask-button", "n_clicks"),
+    State("segmenter-store", "data"),
+    State("ultrasound-image", "figure"),
+    prevent_initial_call=True,
+)
+def load_segmenter_mask(n_clicks, segmenter_mask, current_figure):
+    if n_clicks is None:
+        raise PreventUpdate
+
+    if segmenter_mask is None:
+        return current_figure
+
+    # Convert segmenter_mask to a NumPy array if it is a list
+    if isinstance(segmenter_mask, list):
+        segmenter_mask = np.array(segmenter_mask)
+
+    # Transform the segmenter mask into a shape
+    contours, _ = cv2.findContours(segmenter_mask.astype(np.uint8), cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_TC89_L1)
+    svg_paths = []
+    for c in contours:
+        svg_path = SvgPath(c)
+        svg_paths.append(svg_path.to_dict())
+
+    # Create a new figure with the updated shape
+    new_figure = go.Figure(data=current_figure["data"])
+    new_figure.update_layout(
+    shapes=svg_paths,
+    dragmode='drawclosedpath',
+    newshape=dict(line_color='#444', fillcolor='rgba(0,0,0,0)'),
+    margin=dict(l=0, r=0, b=0, t=0),
+    xaxis=dict(visible=False, range=[0, segmenter_mask.shape[1]]),
+    yaxis=dict(visible=False, range=[segmenter_mask.shape[0], 0], scaleanchor="x", scaleratio=1)
+    )
+
+    return new_figure
 
 
 @app.callback(
