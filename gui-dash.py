@@ -149,6 +149,7 @@ fig.update_layout(dragmode='drawclosedpath')
 
 config_image = {
     "modeBarButtonsToAdd": [
+        "zoom2d",
         "drawclosedpath",
         "drawcircle",
         "drawrect",
@@ -156,7 +157,6 @@ config_image = {
     ],
     "displaylogo": False,
     "modeBarButtonsToRemove": [
-        "zoom2d",
         "pan2d",
         "select2d",
         "lasso2d",
@@ -261,7 +261,7 @@ icon_base64 = f"data:image/png;base64,{encoded_string}"
 main_layout = dbc.Container([
     dbc.Row([
         dbc.Col([
-            html.H1("Medical Image Analysis", className="display-4 text-center mb-4", style={"font-weight": "bold"})
+            html.H1("EchoGuardian", className="display-4 text-center mb-4", style={"font-weight": "bold"})
         ], width=12)
     ], justify="center", className="text-center"),
     dbc.Row([
@@ -324,7 +324,7 @@ main_layout = dbc.Container([
     dbc.Row([
         dbc.Col([
             dbc.Button("Predict with your mask", id="classify-button", color="primary", className="mr-2", style={"margin-right": "10px"}),
-            dbc.Button("Predict with segmenter mask", id="classify-with-segmenter-button", color="secondary", className="ml-2", style={"margin-left": "10px"}),
+            # dbc.Button("Predict with segmenter mask", id="classify-with-segmenter-button", color="secondary", className="ml-2", style={"margin-left": "10px"}),
             dbc.Button("Load Segmenter Mask", id="load-segmenter-mask-button", color="info", className="ml-2", style={"margin-left": "10px"}),
             html.Div(id="output-predict", className="mt-3"),
         ], width=12, className="text-center"),
@@ -574,7 +574,7 @@ def update_annotation_and_upload(relayout_data, load_segmenter_mask_clicks, cont
     Output("output-predict", "children", allow_duplicate=True),
     Output("confirm-auto-segmenter", "displayed"),
     Input("classify-button", "n_clicks"),
-    Input("classify-with-segmenter-button", "n_clicks"),
+    # Input("classify-with-segmenter-button", "n_clicks"),
     Input("confirm-auto-segmenter", "submit_n_clicks"),
     State("image-store", "data"),
     State("mask-store", "data"),
@@ -582,7 +582,7 @@ def update_annotation_and_upload(relayout_data, load_segmenter_mask_clicks, cont
     State("auth-store", "data"),
     prevent_initial_call='initial_duplicate'
 )
-def on_predict(n_clicks_classify, n_clicks_classify_segmenter, confirm_danger_clicks, image, mask, segmenter_mask, auth):
+def on_predict(n_clicks_classify, confirm_danger_clicks, image, mask, segmenter_mask, auth):
     if auth is None:
         return "Please login first.", False
     
@@ -628,11 +628,11 @@ def on_predict(n_clicks_classify, n_clicks_classify_segmenter, confirm_danger_cl
             except requests.exceptions.RequestException as e:
                 return f"Error: {str(e)}", False
 
-    elif trigger_id == "classify-with-segmenter-button":
-        if image is None:
-            return "Please upload an image before predicting.", False
-        else:
-            return "", True
+    # elif trigger_id == "classify-with-segmenter-button":
+    #     if image is None:
+    #         return "Please upload an image before predicting.", False
+    #     else:
+    #         return "", True
 
     elif trigger_id == "confirm-auto-segmenter":
         try:
@@ -696,11 +696,11 @@ def on_predict(n_clicks_classify, n_clicks_classify_segmenter, confirm_danger_cl
             except requests.exceptions.RequestException as e:
                 return f"Error: {str(e)}", False
 
-    elif trigger_id == "classify-with-segmenter-button":
-        if image is None:
-            return "Please upload an image before predicting.", False
-        else:
-            return "", True
+    # elif trigger_id == "classify-with-segmenter-button":
+    #     if image is None:
+    #         return "Please upload an image before predicting.", False
+    #     else:
+    #         return "", True
 
     elif trigger_id == "confirm-auto-segmenter":
         try:
@@ -762,11 +762,11 @@ def on_predict(n_clicks_classify, n_clicks_classify_segmenter, confirm_danger_cl
             except requests.exceptions.RequestException as e:
                 return f"Error: {str(e)}", False
             
-    elif trigger_id == "classify-with-segmenter-button":
-        if image is None:
-            return "Please upload an image before predicting.", False
-        else:            
-            return f"", True
+    # elif trigger_id == "classify-with-segmenter-button":
+    #     if image is None:
+    #         return "Please upload an image before predicting.", False
+    #     else:            
+    #         return f"", True
     elif trigger_id == "confirm-auto-segmenter":
         try:
             if not isinstance(image, np.ndarray): image = np.array(image) # for some reason it's a python list although i save it as numpy array
