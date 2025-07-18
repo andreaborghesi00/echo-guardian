@@ -1,6 +1,6 @@
 # Breast Cancer Segmentation – EchoGuardian
 
-This is the final group project developed along with @MirkoMorello and @andypalmi for the AI in Healthcare course at Unimib.
+This is the final group project developed along with @MirkoMorello and @andypalmi for the Signal and Imaging Acquisition and Modelling in Healthcare course at Unimib.
 [Canva presentation](https://www.canva.com/design/DAGGIBd_wR4/ZEYYc9pe1K8YqfiOg0X0kw/edit)
 
 ## Summary
